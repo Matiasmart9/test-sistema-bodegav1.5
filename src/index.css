@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #F8FAFC;
+  color: #1E293B;
+}
+
+/* --- ESTILOS DE IMPRESIÓN (Ticketera) --- */
+@media print {
+  /* 1. Ocultar todo */
+  body * {
+    visibility: hidden;
+  }
+
+  /* 2. Resetear márgenes y scroll */
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    height: 100% !important;
+    overflow: visible !important;
+  }
+
+  /* 3. Mostrar ticket */
+  #printable-ticket, #printable-ticket * {
+    visibility: visible;
+  }
+
+  /* 4. Posición absoluta para imprimir desde el inicio */
+  #printable-ticket {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* 5. Configuración de página 'auto' para que no corte antes */
+  @page {
+    margin: 0;
+    size: auto; 
+  }
+}

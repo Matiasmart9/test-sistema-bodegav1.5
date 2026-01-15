@@ -2,15 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 
-export default function TicketInvoice({ cart, total, amountPaid, change, paymentMethod, ticketId, date, client, copyLabel, cashierName }) {
+export default function TicketInvoice({ cart, total, amountPaid, change, paymentMethod, ticketId, date, client, copyLabel, cashierName, subTotal, discountTotal, appliedDiscounts }) {
   
   const [storeData, setStoreData] = useState({
-    storeName: 'CARGANDO...',
-    storeRuc: '',
-    timbrado: '',
-    address: '',
-    phone: '',
-    ticketFooter: ''
+    storeName: 'CARGANDO...', storeRuc: '', timbrado: '', address: '', phone: '', ticketFooter: ''
   });
 
   useEffect(() => {
@@ -29,14 +24,13 @@ export default function TicketInvoice({ cart, total, amountPaid, change, payment
       return methods[method] || method;
   };
 
-  // --- LÓGICA DE NOMBRE DE CLIENTE ---
   let clientName = client?.name || 'SIN NOMBRE';
-  // Si viene como "Consumidor Final" (antiguo o nuevo), lo forzamos a "SIN NOMBRE"
-  if (clientName.toUpperCase() === 'CONSUMIDOR FINAL') {
-      clientName = 'SIN NOMBRE';
-  }
-
+  if (clientName.toUpperCase() === 'CONSUMIDOR FINAL') clientName = 'SIN NOMBRE';
   const clientRuc = client?.ruc || 'SIN RUC';
+
+  // Si no vienen props de descuento (tickets viejos), usamos total directo
+  const finalSubTotal = subTotal || total;
+  const finalDiscount = discountTotal || 0;
 
   return (
     <div className="font-mono text-xs text-gray-900 leading-snug bg-white w-full p-2">
@@ -58,9 +52,7 @@ export default function TicketInvoice({ cart, total, amountPaid, change, payment
         <div className="flex justify-between"><span>FECHA:</span><span>{date.toLocaleDateString()} {date.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></div>
         <div className="flex justify-between"><span>TICKET:</span><span>#{ticketId}</span></div>
         <div className="flex justify-between"><span>CAJERO:</span><span className="uppercase">{cashierName || 'SISTEMA'}</span></div>
-        
         <div className="border-b border-dotted border-gray-400 my-1"></div>
-        {/* Aquí mostramos el nombre corregido */}
         <div className="flex justify-between"><span>CLIENTE:</span><span className="font-bold text-right max-w-[150px] truncate uppercase">{clientName}</span></div>
         <div className="flex justify-between"><span>RUC/CI:</span><span>{clientRuc}</span></div>
       </div>
@@ -80,10 +72,7 @@ export default function TicketInvoice({ cart, total, amountPaid, change, payment
                 <span className="w-6 font-bold">{item.quantity}</span>
                 <div className="flex-1 px-1">
                     <span className="block font-medium">{item.name}</span>
-                    <span className="text-[10px] text-gray-500">
-                        {parseInt(item.price).toLocaleString()} 
-                        {item.tax ? ` (${item.tax}%)` : ''}
-                    </span>
+                    <span className="text-[10px] text-gray-500">{parseInt(item.price).toLocaleString()}</span>
                 </div>
                 <span className="w-16 text-right font-bold text-sm">{(item.price * item.quantity).toLocaleString()}</span>
             </div>
@@ -92,10 +81,27 @@ export default function TicketInvoice({ cart, total, amountPaid, change, payment
 
       <div className="border-b-2 border-dashed border-gray-800 my-3"></div>
 
-      {/* TOTALES */}
-      <div className="flex justify-between items-center text-2xl font-black my-4">
-        <span>TOTAL</span>
-        <span>₲ {total.toLocaleString()}</span>
+      {/* TOTALES ESTRUCTURADOS */}
+      <div className="space-y-1 mb-3 text-right">
+          {finalDiscount > 0 && (
+              <div className="flex justify-between text-gray-600">
+                  <span>SUBTOTAL:</span>
+                  <span>₲ {finalSubTotal.toLocaleString()}</span>
+              </div>
+          )}
+          
+          {/* LISTA DE DESCUENTOS SI EXISTEN */}
+          {appliedDiscounts && appliedDiscounts.map((d, i) => (
+              <div key={i} className="flex justify-between text-xs italic text-gray-500">
+                  <span>{d.quantity}x {d.name}</span>
+                  <span>- ₲ {(d.type==='fixed' ? d.value*d.quantity : (finalSubTotal*(d.value/100))*d.quantity).toLocaleString()}</span>
+              </div>
+          ))}
+
+          <div className="flex justify-between items-center text-2xl font-black mt-2">
+            <span>TOTAL</span>
+            <span>₲ {total.toLocaleString()}</span>
+          </div>
       </div>
 
       {/* PAGO */}
@@ -114,17 +120,11 @@ export default function TicketInvoice({ cart, total, amountPaid, change, payment
         </div>
       </div>
 
-      {/* FOOTER */}
       <div className="text-center pb-2">
-        {copyLabel && (
-            <div className="font-black text-sm uppercase border-b border-black pb-1 mb-2">
-                {copyLabel}
-            </div>
-        )}
+        {copyLabel && <div className="font-black text-sm uppercase border-b border-black pb-1 mb-2">{copyLabel}</div>}
         <p className="font-bold text-xs whitespace-pre-wrap leading-tight">{storeData.ticketFooter}</p>
         <p className="text-[10px] italic mt-2">Sin valor fiscal</p>
       </div>
-
     </div>
   );
 }

@@ -37,7 +37,7 @@ export default function ItemsList() {
 
         const catSnap = await getDocs(collection(db, "categories"));
         const dbCategories = catSnap.docs.map(doc => doc.id);
-        const defaultCategories = ['Sin categoría', 'Bebidas', 'Limpieza', 'Comestibles', 'Gaseosas'];
+        const defaultCategories = ['Sin categoría'];
         
         const mergedCategories = [...new Set([...defaultCategories, ...dbCategories])];
         setCategories(mergedCategories);
@@ -109,15 +109,13 @@ export default function ItemsList() {
   const goToPreviousPage = () => setCurrentPage(prev => Math.max(prev - 1, 1));
   const goToNextPage = () => setCurrentPage(prev => Math.min(prev + 1, totalPages));
   
-  // --- LÓGICA VISUAL DE STOCK (ACTUALIZADA) ---
+  // --- LÓGICA VISUAL DE STOCK ---
   const calculateTotalStock = (product) => {
-    // Si tiene variantes, mostramos el total azul
     if (product.variants && product.variants.length > 0) {
       const total = product.variants.reduce((acc, curr) => acc + (parseInt(curr.stock) || 0), 0);
       return <span className="text-blue-600 font-medium">{total} (Var)</span>;
     }
     
-    // Si es producto simple, aplicamos la lógica de colores
     const stock = parseInt(product.current_stock) || 0;
     const min = parseInt(product.low_stock) || 0;
 
@@ -212,6 +210,7 @@ export default function ItemsList() {
                       <th className="px-6 py-4">Producto</th>
                       <th className="px-6 py-4">Categoría</th>
                       <th className="px-6 py-4">Precio</th>
+                      <th className="px-6 py-4">Coste</th> {/* COLUMNA AGREGADA */}
                       <th className="px-6 py-4">Stock</th>
                       <th className="px-6 py-4 text-center">Stock Min.</th>
                       <th className="px-6 py-4 text-right">Acciones</th>
@@ -251,6 +250,10 @@ export default function ItemsList() {
                             <td className="px-6 py-4 font-medium text-sm text-gray-600">
                               {hasVariants ? <span className="italic">Varía</span> : `₲ ${product.price?.toLocaleString()}`}
                             </td>
+                            {/* NUEVA CELDA DE COSTE */}
+                            <td className="px-6 py-4 font-medium text-sm text-gray-500">
+                              {hasVariants ? '-' : `₲ ${(product.cost || 0).toLocaleString()}`}
+                            </td>
                             <td className="px-6 py-4 text-sm">
                                 {calculateTotalStock(product)}
                             </td>
@@ -279,7 +282,7 @@ export default function ItemsList() {
 
                           {isExpanded && hasVariants && (
                           <tr className="bg-gray-50/50">
-                              <td colSpan="7" className="px-4 py-4 md:px-10">
+                              <td colSpan="8" className="px-4 py-4 md:px-10"> {/* Colspan aumentado a 8 */}
                               <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm animate-fadeIn">
                                   <table className="w-full text-sm">
                                       <thead className="bg-gray-50 text-xs text-gray-500 uppercase font-semibold border-b border-gray-100">
@@ -299,7 +302,6 @@ export default function ItemsList() {
                                                   <td className="px-6 py-3">₲ {variant.price?.toLocaleString()}</td>
                                                   <td className="px-6 py-3 text-gray-500">₲ {variant.cost?.toLocaleString()}</td>
                                                   
-                                                  {/* STOCK VARIANTE CON COLOR */}
                                                   <td className={`px-6 py-3 font-bold ${
                                                       (variant.stock <= 0) ? 'text-red-600 bg-red-50' : 
                                                       (variant.stock <= (variant.low_stock || 5)) ? 'text-red-500' : 'text-green-600'

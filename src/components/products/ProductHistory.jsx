@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, doc, getDoc, runTransaction } from "firebase/firestore";
+import { collection, query, where, getDocs, doc, getDoc, runTransaction, deleteDoc, updateDoc } from "firebase/firestore";
 import { db } from '../../firebase/config';
-import { History, MessageSquare, PlusCircle, X, Save, ArrowUp, ArrowDown, Minus } from 'lucide-react';
+import { History, MessageSquare, PlusCircle, X, Save, ArrowUp, ArrowDown, Minus, Trash2, Edit, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 export default function ProductHistory({ productId, onStockUpdate }) {
@@ -12,11 +12,15 @@ export default function ProductHistory({ productId, onStockUpdate }) {
   // Estados para el Modal
   const [showModal, setShowModal] = useState(false);
   const [productData, setProductData] = useState(null);
+  
+  // Estado para saber si estamos editando
+  const [editingLog, setEditingLog] = useState(null); 
+
   const [formData, setFormData] = useState({
     variantIndex: -1, 
     type: 'add', 
     quantity: 0,
-    reason: 'Ajuste Manual',
+    reason: 'Compra a Proveedor',
     note: ''
   });
 
@@ -50,9 +54,59 @@ export default function ProductHistory({ productId, onStockUpdate }) {
     loadProduct();
   }, [productId]);
 
-  // Guardar Nuevo Movimiento
+  // ELIMINAR REGISTRO (Solo borra el log visual)
+  const handleDeleteLog = async (logId) => {
+      if (window.confirm("¿Deseas eliminar este registro del historial? (Nota: Esto no modifica el stock actual, solo borra el registro visual)")) {
+          try {
+              await deleteDoc(doc(db, "inventory_logs", logId));
+              fetchHistory();
+          } catch (e) { console.error(e); alert("Error al eliminar"); }
+      }
+  };
+
+  // --- ABRIR MODAL PARA EDITAR ---
+  const handleOpenEdit = (log) => {
+      // Intentamos adivinar el índice de la variante basándonos en el nombre guardado
+      let vIndex = -1;
+      if (productData?.variants) {
+          // Buscamos si el nombre del log contiene el nombre de alguna variante
+          vIndex = productData.variants.findIndex(v => log.variantName.includes(v.name));
+      }
+
+      // Determinar el tipo y cantidad basado en el cambio positivo/negativo
+      let type = 'add';
+      let qty = Math.abs(log.change);
+
+      if (log.change < 0) type = 'subtract';
+      // Si fue un ajuste exacto, es difícil saberlo solo con 'change', asumimos add/subtract para corregir.
+
+      setEditingLog(log); // Guardamos el log que se está editando
+      setFormData({
+          variantIndex: vIndex,
+          type: type,
+          quantity: qty,
+          reason: log.reason,
+          note: log.note || ''
+      });
+      setShowModal(true);
+  };
+
+  // --- ABRIR MODAL PARA CREAR ---
+  const handleOpenCreate = () => {
+      setEditingLog(null); // Limpiamos edición
+      setFormData({ 
+          variantIndex: -1, 
+          type: 'add', 
+          quantity: 0, 
+          reason: 'Compra a Proveedor', 
+          note: '' 
+      });
+      setShowModal(true);
+  }
+
+  // --- GUARDAR MOVIMIENTO (CREAR O EDITAR) ---
   const handleSaveMovement = async () => {
-    if(!formData.quantity || formData.quantity <= 0) return alert("Ingrese una cantidad válida");
+    if(!formData.quantity || formData.quantity < 0) return alert("Ingrese una cantidad válida");
 
     try {
         await runTransaction(db, async (transaction) => {
@@ -62,57 +116,85 @@ export default function ProductHistory({ productId, onStockUpdate }) {
 
             const prod = sfDoc.data();
             let currentStock = 0;
-            let newStock = 0;
             
-            // --- MEJORA 1: Nombre Completo (Producto + Variante) ---
-            let variantName = prod.name; // Por defecto el nombre del producto
+            // 1. Determinar Variante Actual
+            let variantName = prod.name; 
+            let targetVariantIndex = formData.variantIndex;
 
-            if (formData.variantIndex >= 0 && prod.variants) {
-                const variant = prod.variants[formData.variantIndex];
+            if (targetVariantIndex >= 0 && prod.variants) {
+                const variant = prod.variants[targetVariantIndex];
                 currentStock = parseInt(variant.stock) || 0;
-                // Si es variante, concatenamos: "Producto / Variante"
                 variantName = `${prod.name} / ${variant.name}`; 
             } else {
                 currentStock = parseInt(prod.current_stock) || 0;
             }
 
+            // 2. Lógica Especial para EDICIÓN
+            if (editingLog) {
+                // A. Primero REVERTIMOS el cambio anterior en el stock
+                currentStock = currentStock - editingLog.change; 
+            }
+
+            // 3. Calcular NUEVO cambio
+            let change = 0;
+            let newStock = 0;
             const qty = parseInt(formData.quantity);
-            if (formData.type === 'add') newStock = currentStock + qty;
-            else if (formData.type === 'subtract') newStock = Math.max(0, currentStock - qty);
-            else if (formData.type === 'adjust') newStock = qty;
 
-            const change = newStock - currentStock;
+            if (formData.type === 'add') {
+                newStock = currentStock + qty;
+                change = qty;
+            } else if (formData.type === 'subtract') {
+                newStock = Math.max(0, currentStock - qty);
+                change = -qty;
+            } else if (formData.type === 'adjust') {
+                newStock = qty;
+                change = newStock - currentStock;
+            }
 
-            if (formData.variantIndex >= 0 && prod.variants) {
+            // 4. Actualizar Base de Datos (Producto)
+            if (targetVariantIndex >= 0 && prod.variants) {
                 const newVariants = [...prod.variants];
-                newVariants[formData.variantIndex].stock = newStock;
+                newVariants[targetVariantIndex].stock = newStock;
                 transaction.update(productRef, { variants: newVariants });
             } else {
                 transaction.update(productRef, { current_stock: newStock });
             }
 
-            const newLogRef = doc(collection(db, "inventory_logs"));
-            transaction.set(newLogRef, {
-                productId: productId,
-                date: new Date(),
-                variantName: variantName, // Guardamos el nombre compuesto
-                reason: formData.reason,
-                note: formData.note,
-                user: userData?.name || 'Usuario',
-                change: change,
-                finalStock: newStock
-            });
+            // 5. Guardar Log (Crear o Actualizar)
+            if (editingLog) {
+                const logRef = doc(db, "inventory_logs", editingLog.id);
+                transaction.update(logRef, {
+                    date: new Date(), 
+                    variantName: variantName,
+                    reason: formData.reason,
+                    note: formData.note,
+                    user: userData?.name || 'Usuario (Editado)',
+                    change: change,
+                    finalStock: newStock
+                });
+            } else {
+                const newLogRef = doc(collection(db, "inventory_logs"));
+                transaction.set(newLogRef, {
+                    productId: productId,
+                    date: new Date(),
+                    variantName: variantName, 
+                    reason: formData.reason,
+                    note: formData.note,
+                    user: userData?.name || 'Usuario',
+                    change: change,
+                    finalStock: newStock
+                });
+            }
         });
 
-        alert("Movimiento registrado con éxito");
+        alert(editingLog ? "Registro actualizado y stock corregido." : "Movimiento registrado con éxito.");
         setShowModal(false);
-        setFormData({ variantIndex: -1, type: 'add', quantity: 0, reason: 'Ajuste Manual', note: '' });
         fetchHistory(); 
         if(onStockUpdate) onStockUpdate(); 
 
     } catch (error) {
         console.error("Error transacción:", error);
-        alert("Error al guardar el movimiento.");
+        alert("Error al guardar: " + error);
     }
   };
 
@@ -134,7 +216,7 @@ export default function ProductHistory({ productId, onStockUpdate }) {
         
         <button 
             type="button" 
-            onClick={() => setShowModal(true)}
+            onClick={handleOpenCreate}
             className="text-xs bg-white border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-100 font-bold text-gray-700 flex items-center gap-2"
         >
             <PlusCircle size={14}/> AGREGAR NOTA / AJUSTE
@@ -146,12 +228,21 @@ export default function ProductHistory({ productId, onStockUpdate }) {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
                 <div className="flex justify-between items-center mb-4 border-b pb-2">
-                    <h4 className="font-bold text-gray-800">Registrar Movimiento</h4>
+                    <h4 className="font-bold text-gray-800">
+                        {editingLog ? 'Editar Movimiento' : 'Registrar Movimiento'}
+                    </h4>
                     <button type="button" onClick={() => setShowModal(false)}><X size={20} className="text-gray-400"/></button>
                 </div>
                 
+                {editingLog && (
+                    <div className="mb-4 bg-yellow-50 text-yellow-800 text-xs p-3 rounded flex items-start gap-2">
+                        <AlertTriangle size={16} className="shrink-0"/>
+                        <p>Atención: Al editar este registro, el stock actual del producto se recalculará automáticamente para reflejar el cambio.</p>
+                    </div>
+                )}
+
                 <div className="space-y-4">
-                    
+                    {/* ... (Resto del formulario igual) ... */}
                     {productData?.variants?.length > 0 && (
                         <div>
                             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Variante Afectada</label>
@@ -159,6 +250,7 @@ export default function ProductHistory({ productId, onStockUpdate }) {
                                 className="w-full border rounded p-2" 
                                 value={formData.variantIndex}
                                 onChange={e => setFormData({...formData, variantIndex: parseInt(e.target.value)})}
+                                disabled={!!editingLog} 
                             >
                                 <option value={-1}>-- Seleccionar Variante --</option>
                                 {productData.variants.map((v, i) => (
@@ -223,7 +315,7 @@ export default function ProductHistory({ productId, onStockUpdate }) {
                         onClick={handleSaveMovement}
                         className="w-full bg-primary text-white font-bold py-2 rounded hover:bg-green-600 flex items-center justify-center gap-2"
                     >
-                        <Save size={18}/> GUARDAR MOVIMIENTO
+                        <Save size={18}/> {editingLog ? 'ACTUALIZAR Y CORREGIR STOCK' : 'GUARDAR MOVIMIENTO'}
                     </button>
                 </div>
             </div>
@@ -239,62 +331,56 @@ export default function ProductHistory({ productId, onStockUpdate }) {
               <th className="px-6 py-3 bg-gray-50">Motivo</th>
               <th className="px-6 py-3 bg-gray-50">Nota</th>
               <th className="px-6 py-3 bg-gray-50">Usuario</th>
-              <th className="px-6 py-3 text-right bg-gray-50">Ant.</th> {/* NUEVA COLUMNA */}
+              <th className="px-6 py-3 text-right bg-gray-50">Ant.</th>
               <th className="px-6 py-3 text-right bg-gray-50">Cambio</th>
               <th className="px-6 py-3 text-right bg-gray-50">Final</th>
+              <th className="px-6 py-3 text-center bg-gray-50">Acciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {logs.length === 0 ? (
-                <tr><td colSpan="8" className="p-8 text-center text-gray-400">Sin movimientos registrados</td></tr>
+                <tr><td colSpan="9" className="p-8 text-center text-gray-400">Sin movimientos registrados</td></tr>
             ) : logs.map((log) => {
-              // Calculamos stock anterior visualmente
               const previousStock = (log.finalStock || 0) - (log.change || 0);
               
               return (
                 <tr key={log.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 text-gray-600 whitespace-nowrap text-xs">{formatDate(log.date)}</td>
-                    
-                    {/* MEJORA 1: Nombre más destacado */}
-                    <td className="px-6 py-4 font-bold text-gray-800 text-xs">
-                        {log.variantName || 'Producto Base'}
-                    </td>
-                    
-                    <td className="px-6 py-4 text-xs">
-                        <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-600 border border-gray-200">
-                            {log.reason}
-                        </span>
-                    </td>
-                    
-                    <td className="px-6 py-4 text-gray-500 italic text-xs max-w-[150px] truncate">
-                        {log.note ? (
-                            <div className="flex items-center gap-1" title={log.note}>
-                                <MessageSquare size={12} className="text-blue-400 shrink-0"/>
-                                {log.note}
-                            </div>
-                        ) : '-'}
-                    </td>
-                    
+                    <td className="px-6 py-4 font-bold text-gray-800 text-xs">{log.variantName || 'Producto Base'}</td>
+                    <td className="px-6 py-4 text-xs"><span className="px-2 py-1 rounded-full bg-gray-100 text-gray-600 border border-gray-200">{log.reason}</span></td>
+                    <td className="px-6 py-4 text-gray-500 italic text-xs max-w-[150px] truncate">{log.note ? (<div className="flex items-center gap-1" title={log.note}><MessageSquare size={12} className="text-blue-400 shrink-0"/>{log.note}</div>) : '-'}</td>
                     <td className="px-6 py-4 text-gray-600 text-xs">{log.user || 'Sistema'}</td>
-                    
-                    {/* MEJORA 2: Stock Anterior */}
-                    <td className="px-6 py-4 text-right text-gray-400 text-xs font-mono">
-                        {previousStock}
-                    </td>
-
-                    {/* MEJORA 3: Cambio con Iconos y Colores */}
+                    <td className="px-6 py-4 text-right text-gray-400 text-xs font-mono">{previousStock}</td>
                     <td className="px-6 py-4 text-right text-xs">
-                        <div className={`font-bold flex items-center justify-end gap-1 
-                            ${log.change > 0 ? 'text-green-600' : log.change < 0 ? 'text-red-500' : 'text-gray-400'}`}>
+                        <div className={`font-bold flex items-center justify-end gap-1 ${log.change > 0 ? 'text-green-600' : log.change < 0 ? 'text-red-500' : 'text-gray-400'}`}>
                             {log.change > 0 && <ArrowUp size={12}/>}
                             {log.change < 0 && <ArrowDown size={12}/>}
                             {log.change === 0 && <Minus size={12}/>}
                             {Math.abs(log.change)}
                         </div>
                     </td>
-                    
-                    <td className="px-6 py-4 text-right font-black text-gray-700 text-xs bg-gray-50/50">
-                        {log.finalStock}
+                    <td className="px-6 py-4 text-right font-black text-gray-700 text-xs bg-gray-50/50">{log.finalStock}</td>
+
+                    {/* COLUMNA DE ACCIONES */}
+                    <td className="px-6 py-4 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                            <button 
+                                type="button"  // <--- CORRECCIÓN CLAVE
+                                onClick={() => handleOpenEdit(log)} 
+                                className="text-blue-500 hover:bg-blue-100 p-1.5 rounded transition-colors" 
+                                title="Editar Completo"
+                            >
+                                <Edit size={14}/>
+                            </button>
+                            <button 
+                                type="button" // <--- CORRECCIÓN CLAVE
+                                onClick={() => handleDeleteLog(log.id)} 
+                                className="text-gray-400 hover:text-red-500 hover:bg-red-50 p-1.5 rounded transition-colors" 
+                                title="Eliminar Registro"
+                            >
+                                <Trash2 size={14}/>
+                            </button>
+                        </div>
                     </td>
                 </tr>
               );

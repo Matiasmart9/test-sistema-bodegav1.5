@@ -140,7 +140,7 @@ export default function NewProduct() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="md:col-span-2">
                     <label className="block text-sm font-bold text-gray-700 mb-1">Nombre del Producto</label>
-                    <input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary" placeholder="Ej: Queso Paraguay" required />
+                    <input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary" placeholder="Ej: Stella Artois" required />
                 </div>
 
                 {/* --- SELECTOR DE CATEGORÍA DINÁMICO --- */}

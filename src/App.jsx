@@ -8,7 +8,7 @@ import DashboardHome from './pages/dashboard/DashboardHome';
 import ItemsList from './pages/inventory/ItemsList';
 import NewProduct from './pages/inventory/NewProduct';
 import EmployeesList from './pages/employees/EmployeesList';
-import EmployeeForm from './pages/employees/EmployeeForm'; // <--- ESTE ES EL NUEVO
+import EmployeeForm from './pages/employees/EmployeeForm'; 
 import WorkHoursList from './pages/employees/WorkHoursList';
 import PosTerminal from './pages/pos/PosTerminal';
 import Login from './pages/auth/Login';
@@ -17,6 +17,8 @@ import InventoryHistoryGlobal from './pages/inventory/InventoryHistoryGlobal';
 import ClientsList from './pages/clients/ClientsList';
 import Settings from './pages/config/Settings';
 import ShiftHistory from './pages/pos/ShiftHistory';
+import DiscountsList from './pages/discounts/DiscountsList'; // <--- Descuentos
+import DiscountForm from './pages/discounts/DiscountForm';   // <--- Descuentos
 
 // --- PANTALLA DE CARGA GLOBAL ---
 const LoadingScreen = () => (
@@ -89,6 +91,11 @@ function App() {
             <Route path="productos/editar/:id" element={<NewProduct />} />
             <Route path="/articulos/historial" element={<InventoryHistoryGlobal />} />
             
+            {/* DESCUENTOS (NUEVO) */}
+            <Route path="descuentos" element={<DiscountsList />} />
+            <Route path="descuentos/nuevo" element={<DiscountForm />} />
+            <Route path="descuentos/editar/:id" element={<DiscountForm />} />
+
             {/* EMPLEADOS (Rutas Corregidas) */}
             <Route path="empleados" element={<EmployeesList />} />
             <Route path="empleados/nuevo" element={<EmployeeForm />} />        {/* ÚNICA RUTA DE CREACIÓN */}

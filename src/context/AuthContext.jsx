@@ -39,19 +39,20 @@ export function AuthProvider({ children }) {
     // 1. Escuchar a Firebase Auth (Administradores Reales)
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
-        // Es un Admin de Firebase
         setUser(currentUser);
-        // Intentar obtener rol extra si existe, sino es admin por defecto
         try {
             const docRef = doc(db, "users", currentUser.uid);
             const docSnap = await getDoc(docRef);
             if(docSnap.exists()) {
-                setUserData({ ...docSnap.data(), role: 'admin' });
+                // CORRECCIÓN: Agregamos 'id: currentUser.uid'
+                setUserData({ id: currentUser.uid, ...docSnap.data(), role: 'admin' });
             } else {
-                setUserData({ name: currentUser.email, role: 'admin' });
+                // CORRECCIÓN: Agregamos 'id: currentUser.uid'
+                setUserData({ id: currentUser.uid, name: currentUser.email, role: 'admin' });
             }
         } catch (e) {
-            setUserData({ name: 'Admin', role: 'admin' });
+            // CORRECCIÓN: Agregamos 'id: currentUser.uid'
+            setUserData({ id: currentUser.uid, name: 'Admin', role: 'admin' });
         }
         setLoading(false);
       } else {

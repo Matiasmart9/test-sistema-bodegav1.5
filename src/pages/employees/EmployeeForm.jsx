@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { collection, addDoc, updateDoc, doc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
-import { User, Mail, Shield, Save, ArrowLeft, Loader2, Lock, Eye, EyeOff } from 'lucide-react';
+import { User, Mail, Shield, Save, ArrowLeft, Loader2, Lock, Eye, EyeOff, TrendingDown } from 'lucide-react';
 
 export default function EmployeeForm() {
   const navigate = useNavigate();
@@ -17,7 +17,8 @@ export default function EmployeeForm() {
     name: '',
     email: '',
     role: 'cashier',
-    password: '' // Antes era 'pin'
+    password: '',
+    canRegisterExpenses: false // <--- NUEVO CAMPO DE PERMISO
   });
 
   // CARGAR DATOS
@@ -29,10 +30,10 @@ export default function EmployeeForm() {
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
             const data = docSnap.data();
-            // Mapeamos 'pin' a 'password' por si existen registros viejos
             setFormData({
                 ...data,
-                password: data.password || data.pin || '' 
+                password: data.password || data.pin || '',
+                canRegisterExpenses: data.canRegisterExpenses || false // Cargar el permiso existente o false
             });
           } else {
             alert("Empleado no encontrado");
@@ -60,8 +61,9 @@ export default function EmployeeForm() {
           name: formData.name,
           email: formData.email,
           role: formData.role,
-          password: formData.password, // Guardamos como password
-          pin: null // Eliminamos el pin si existía
+          password: formData.password,
+          pin: null,
+          canRegisterExpenses: formData.canRegisterExpenses // Guardamos el permiso
       };
 
       if (isEditMode) {
@@ -101,6 +103,7 @@ export default function EmployeeForm() {
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <form onSubmit={handleSubmit} className="p-8 space-y-6">
             
+            {/* DATOS PERSONALES */}
             <div className="space-y-2">
                 <label className="text-sm font-bold text-gray-700 flex items-center gap-2"><User size={16}/> Nombre Completo</label>
                 <input 
@@ -158,6 +161,35 @@ export default function EmployeeForm() {
                     </div>
                 </div>
             </div>
+
+            {/* --- SECCIÓN PERMISOS ESPECIALES (NUEVO) --- */}
+            {/* Solo mostramos esto si el rol es Cajero, porque el Admin tiene todo permitido */}
+            {formData.role === 'cashier' && (
+                <div className="pt-4 border-t border-gray-100 animate-fadeIn">
+                    <label className="text-sm font-bold text-gray-700 mb-3 block">Permisos Adicionales</label>
+                    
+                    {/* SWITCH VISUAL PARA REGISTRO DE EGRESOS */}
+                    <div 
+                        className={`flex items-center justify-between p-4 border rounded-xl cursor-pointer transition-all ${formData.canRegisterExpenses ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50 hover:border-gray-300'}`} 
+                        onClick={() => setFormData({...formData, canRegisterExpenses: !formData.canRegisterExpenses})}
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-lg ${formData.canRegisterExpenses ? 'bg-white text-green-600 shadow-sm' : 'bg-gray-200 text-gray-500'}`}>
+                                <TrendingDown size={20} />
+                            </div>
+                            <div>
+                                <p className={`font-bold text-sm ${formData.canRegisterExpenses ? 'text-green-800' : 'text-gray-700'}`}>Permitir Registro de Egresos</p>
+                                <p className="text-xs text-gray-500">El cajero podrá registrar gastos/retiros de caja.</p>
+                            </div>
+                        </div>
+                        
+                        {/* TOGGLE SWITCH */}
+                        <div className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 ${formData.canRegisterExpenses ? 'bg-green-500' : 'bg-gray-300'}`}>
+                            <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${formData.canRegisterExpenses ? 'translate-x-6' : 'translate-x-0'}`}></div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div className="pt-4 border-t border-gray-50 flex justify-end">
                 <button 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Check, Search, UserPlus, User, Mail, Printer, AlertTriangle } from 'lucide-react';
+import { X, Check, Search, UserPlus, User, Mail, Printer, AlertTriangle, MapPin, Hash } from 'lucide-react';
 import { collection, getDocs, addDoc, query, where } from 'firebase/firestore'; 
 import { db } from '../../firebase/config';
 import TicketInvoice from './TicketInvoice';
@@ -9,6 +9,7 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [step, setStep] = useState(1); 
   const [ticketData, setTicketData] = useState(null);
+  const [loading, setLoading] = useState(false);
   
   // ESTADOS CLIENTE
   const [clientMode, setClientMode] = useState('final'); 
@@ -19,340 +20,345 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
   
   const [newClientData, setNewClientData] = useState({ name: '', ruc: '', address: '', email: '' });
 
-  // VALORES NUMÉRICOS PARA VALIDACIÓN
+  // VALORES NUMÉRICOS
   const numericReceived = parseFloat(amountPaid) || 0;
-  // Validación: Si es efectivo, el monto debe ser mayor o igual al total. 
-  // (Si el campo está vacío, asumimos que quiere pagar exacto, pero si escribe algo, validamos)
-  const isInsufficient = paymentMethod === 'cash' && amountPaid !== '' && numericReceived < total;
-
-  // CÁLCULO DE VUELTO
-  const calculatedChange = Math.max(0, numericReceived - total);
+  const isValidPayment = paymentMethod === 'cash' ? (amountPaid === '' || numericReceived >= total) : true;
+  const changeAmount = paymentMethod === 'cash' && numericReceived > total ? numericReceived - total : 0;
 
   // BUSCAR CLIENTES
   useEffect(() => {
-    if (searchTerm.length > 2) {
-        const search = async () => {
-            const q = query(collection(db, "clients"));
+    const searchClients = async () => {
+        if (searchTerm.length < 2) {
+            setFoundClients([]);
+            return;
+        }
+        try {
+            const q = query(collection(db, "clients")); 
             const snap = await getDocs(q);
-            const matches = snap.docs
-                .map(d => ({id: d.id, ...d.data()}))
-                .filter(c => c.ruc.includes(searchTerm) || c.name.toLowerCase().includes(searchTerm.toLowerCase()))
-                .slice(0, 3);
-            setFoundClients(matches);
-        };
-        const timer = setTimeout(search, 500);
-        return () => clearTimeout(timer);
-    } else {
-        setFoundClients([]);
-    }
-  }, [searchTerm]);
+            const clients = snap.docs.map(doc => ({id: doc.id, ...doc.data()}));
+            
+            const filtered = clients.filter(c => 
+                c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                c.ruc.includes(searchTerm)
+            );
+            setFoundClients(filtered.slice(0, 5));
+        } catch (error) { console.error(error); }
+    };
+    const timer = setTimeout(() => { if(clientMode === 'search') searchClients(); }, 500);
+    return () => clearTimeout(timer);
+  }, [searchTerm, clientMode]);
 
-  // CONTROL DE MÉTODOS DE PAGO
-  useEffect(() => {
-      if (paymentMethod !== 'cash') {
-          setAmountPaid(total.toString());
-      } else {
-          setAmountPaid(''); // Limpiamos para obligar o permitir entrada manual
-      }
-  }, [paymentMethod, total]);
-
-  const handleCreateClient = async () => {
-      if(!newClientData.name || !newClientData.ruc) return alert("Nombre y RUC requeridos");
+  // GUARDAR NUEVO CLIENTE
+  const handleSaveNewClient = async () => {
+      if(!newClientData.name || !newClientData.ruc) return alert("Nombre y RUC obligatorios");
+      setLoading(true);
       try {
           const docRef = await addDoc(collection(db, "clients"), newClientData);
           const newClient = { id: docRef.id, ...newClientData };
           setSelectedClient(newClient);
+          setClientMode('search'); 
           setIsCreatingClient(false);
-          setClientMode('named'); 
-      } catch (e) { console.error(e); alert("Error creando cliente"); }
+      } catch (error) { console.error(error); alert("Error al guardar cliente"); } 
+      finally { setLoading(false); }
   };
 
-  const handleNextStep = () => {
-      if (clientMode === 'named' && !selectedClient) {
-          alert("⚠️ ATENCIÓN: Debes seleccionar un cliente de la búsqueda o crear uno nuevo para continuar.");
-          return;
+  // PROCESAR VENTA
+  const handleConfirmPayment = async () => {
+      setLoading(true);
+      const finalClient = clientMode === 'final' ? { name: 'CONSUMIDOR FINAL', ruc: 'X', address: '' } : selectedClient;
+      
+      const paymentDetails = {
+          method: paymentMethod,
+          amountPaid: paymentMethod === 'cash' ? (amountPaid || total) : total,
+          change: changeAmount,
+          client: finalClient || { name: 'CONSUMIDOR FINAL', ruc: 'X' }
+      };
+
+      const result = await onProcessPayment(paymentDetails);
+      if (result && result.success) {
+          setTicketData(result);
+          setStep(2); 
+      } else {
+          alert("Error al procesar la venta");
       }
-      setStep(2);
-  };
-
-  const handleConfirmSale = async () => {
-    // 1. VALIDACIÓN DE SEGURIDAD (IMPIDE PROCESAR SI FALTA DINERO)
-    if (paymentMethod === 'cash') {
-        const received = parseFloat(amountPaid);
-        // Si escribió algo y es menor al total -> ERROR
-        if (!isNaN(received) && received < total) {
-            return alert(`⚠️ Error: El monto recibido (₲ ${received.toLocaleString()}) es menor al total a cobrar.`);
-        }
-    }
-
-    const finalClient = selectedClient || { name: 'SIN NOMBRE', ruc: 'SIN RUC', address: 'Mostrador' };
-    
-    // Si amountPaid está vacío en efectivo, asumimos pago exacto (total)
-    const finalAmount = paymentMethod === 'cash' 
-        ? (parseFloat(amountPaid) || total) 
-        : total;
-
-    const result = await onProcessPayment({
-        amountPaid: finalAmount,
-        method: paymentMethod,
-        change: Math.max(0, finalAmount - total),
-        client: finalClient
-    });
-
-    if (result && result.success) {
-        setTicketData({ ...result, client: finalClient });
-        setStep(3); 
-    }
+      setLoading(false);
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
-        
-        {/* HEADER */}
-        <div className="bg-gray-50 p-4 border-b border-gray-100 flex justify-between items-center shrink-0">
-            <h3 className="font-bold text-gray-800 text-lg">
-                {step === 1 ? 'Datos de Facturación' : step === 2 ? 'Procesar Pago' : 'Venta Exitosa'}
-            </h3>
-            {step !== 3 && <button onClick={onClose}><X className="text-gray-400 hover:text-gray-600"/></button>}
+    <>
+      {/* --- ÁREA DE IMPRESIÓN (FUERA DEL MODAL PARA EVITAR ERRORES) --- */}
+      {step === 2 && ticketData && (
+        <div id="printable-ticket" className="hidden print:block">
+            <TicketInvoice 
+                cart={ticketData.items} 
+                total={ticketData.total} 
+                amountPaid={ticketData.amountReceived} 
+                change={ticketData.change} 
+                paymentMethod={ticketData.paymentMethod} 
+                ticketId={ticketData.ticketId} 
+                date={ticketData.date} 
+                client={ticketData.client} 
+                cashierName={ticketData.cashier}
+                subTotal={ticketData.subTotal} 
+                discountTotal={ticketData.discountTotal}
+                appliedDiscounts={ticketData.appliedDiscounts}
+            />
         </div>
+      )}
 
-        {/* CONTENIDO SCROLLEABLE */}
-        <div className="p-0 overflow-y-auto flex-1">
-            
-            {/* PASO 1: SELECCIÓN DE CLIENTE */}
-            {step === 1 && (
-                <div className="p-6 space-y-6">
-                    <div className="grid grid-cols-2 gap-3 p-1 bg-gray-100 rounded-xl">
-                        <button 
-                            onClick={() => { setClientMode('final'); setSelectedClient(null); }}
-                            className={`py-2 text-sm font-bold rounded-lg transition-all ${clientMode === 'final' ? 'bg-white shadow text-gray-800' : 'text-gray-500'}`}
-                        >
-                            Sin Nombre / C.F.
-                        </button>
-                        <button 
-                            onClick={() => setClientMode('named')}
-                            className={`py-2 text-sm font-bold rounded-lg transition-all ${clientMode === 'named' ? 'bg-white shadow text-primary' : 'text-gray-500'}`}
-                        >
-                            Con RUC / Nombre
-                        </button>
-                    </div>
+      {/* --- MODAL VISIBLE --- */}
+      <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+        <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[90vh]">
+          
+          {/* COLUMNA IZQUIERDA: RESUMEN */}
+          <div className="w-full md:w-1/3 bg-gray-50 border-r border-gray-200 p-5 flex flex-col overflow-y-auto">
+              <h2 className="text-lg font-black text-gray-800 mb-4">Confirmar Pago</h2>
+              
+              <div className="mb-6">
+                  <p className="text-gray-500 text-xs font-bold uppercase mb-1">Total a cobrar</p>
+                  <p className="text-3xl font-black text-green-600">₲ {total.toLocaleString()}</p>
+              </div>
 
-                    {clientMode === 'named' && !isCreatingClient && (
-                        <div className="relative">
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Buscar Cliente</label>
-                            <div className="relative">
-                                <Search className="absolute left-3 top-3 text-gray-400" size={18}/>
-                                <input 
-                                    type="text" 
-                                    autoFocus
-                                    placeholder="Escribe RUC o Nombre..." 
-                                    value={searchTerm}
-                                    onChange={e => setSearchTerm(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:border-primary focus:ring-2 focus:ring-green-100 outline-none"
-                                />
-                            </div>
-                            
-                            {foundClients.length > 0 && (
-                                <div className="absolute top-full left-0 right-0 bg-white shadow-xl border border-gray-100 rounded-lg mt-1 z-10 divide-y">
-                                    {foundClients.map(client => (
-                                        <div 
-                                            key={client.id} 
-                                            onClick={() => { setSelectedClient(client); setSearchTerm(client.name); setFoundClients([]); }}
-                                            className="p-3 hover:bg-gray-50 cursor-pointer"
-                                        >
-                                            <p className="font-bold text-gray-800 text-sm">{client.name}</p>
-                                            <p className="text-xs text-gray-500">RUC: {client.ruc}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+              <div className="space-y-2 flex-1">
+                  <p className="text-gray-500 text-[10px] font-bold uppercase">Método de Pago</p>
+                  {[
+                      { id: 'cash', label: 'Efectivo', icon: '💵' },
+                      { id: 'qr', label: 'QR Simple', icon: '📱' },
+                      { id: 'card', label: 'Tarjeta', icon: '💳' },
+                      { id: 'transfer', label: 'Transf.', icon: '🏦' }
+                  ].map((m) => (
+                      <button
+                          key={m.id}
+                          onClick={() => setPaymentMethod(m.id)}
+                          className={`w-full p-3 rounded-xl flex items-center gap-3 font-bold transition-all border
+                              ${paymentMethod === m.id 
+                                  ? 'border-green-500 bg-green-50 text-green-700 shadow-sm' 
+                                  : 'border-transparent bg-white text-gray-500 hover:bg-gray-100'}`}
+                      >
+                          <span className="text-lg">{m.icon}</span> <span className="text-sm">{m.label}</span>
+                      </button>
+                  ))}
+              </div>
 
-                            {selectedClient && (
-                                <div className="mt-3 p-3 bg-green-50 border border-green-100 rounded-lg flex justify-between items-center animate-fadeIn">
-                                    <div>
-                                        <p className="font-bold text-green-800 text-sm">{selectedClient.name}</p>
-                                        <p className="text-xs text-green-600">RUC: {selectedClient.ruc}</p>
-                                    </div>
-                                    <button onClick={() => {setSelectedClient(null); setSearchTerm('');}} className="text-green-400 hover:text-green-700"><X size={16}/></button>
-                                </div>
-                            )}
+              <button onClick={onClose} className="mt-4 text-gray-400 hover:text-gray-600 text-xs font-bold py-2">Cancelar Operación</button>
+          </div>
 
-                            <button 
-                                onClick={() => setIsCreatingClient(true)}
-                                className="mt-4 w-full py-2 border border-dashed border-gray-300 text-gray-500 rounded-lg text-sm hover:bg-gray-50 hover:text-primary hover:border-primary transition-colors flex items-center justify-center gap-2"
-                            >
-                                <UserPlus size={16}/> Cliente no existe, crear nuevo
-                            </button>
-                        </div>
-                    )}
+          {/* COLUMNA DERECHA: DETALLES Y CLIENTE */}
+          <div className="w-full md:w-2/3 bg-white flex flex-col min-h-0">
+              
+              {step === 1 ? (
+                  <div className="flex flex-col h-full">
+                      {/* CONTENIDO SCROLLEABLE */}
+                      <div className="flex-1 overflow-y-auto p-6">
+                          
+                          {/* SELECCIÓN DE CLIENTE */}
+                          <div className="mb-6">
+                              <div className="flex justify-between items-center mb-3">
+                                  <h3 className="font-bold text-gray-700 flex items-center gap-2 text-sm">
+                                      <User size={18} className="text-green-600"/> Datos de Facturación
+                                  </h3>
+                                  <div className="flex bg-gray-100 p-1 rounded-lg">
+                                      <button 
+                                          onClick={() => { setClientMode('final'); setSelectedClient(null); setIsCreatingClient(false); }}
+                                          className={`px-3 py-1 text-[10px] font-bold rounded-md transition-colors ${clientMode === 'final' ? 'bg-white shadow text-green-700' : 'text-gray-500'}`}
+                                      >
+                                          Final
+                                      </button>
+                                      <button 
+                                          onClick={() => setClientMode('search')}
+                                          className={`px-3 py-1 text-[10px] font-bold rounded-md transition-colors ${clientMode === 'search' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}
+                                      >
+                                          RUC/Nombre
+                                      </button>
+                                  </div>
+                              </div>
 
-                    {isCreatingClient && (
-                        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-3 animate-fadeIn">
-                            <div className="flex justify-between items-center mb-2">
-                                <h4 className="font-bold text-gray-700 text-sm">Nuevo Cliente</h4>
-                                <button onClick={() => setIsCreatingClient(false)} className="text-xs text-red-500 hover:underline">Cancelar</button>
-                            </div>
-                            <input type="text" placeholder="Razón Social / Nombre *" className="w-full border rounded p-2 text-sm focus:border-primary outline-none" value={newClientData.name} onChange={e => setNewClientData({...newClientData, name: e.target.value})} />
-                            <input type="text" placeholder="RUC / CI *" className="w-full border rounded p-2 text-sm focus:border-primary outline-none" value={newClientData.ruc} onChange={e => setNewClientData({...newClientData, ruc: e.target.value})} />
-                            <input type="text" placeholder="Dirección" className="w-full border rounded p-2 text-sm focus:border-primary outline-none" value={newClientData.address} onChange={e => setNewClientData({...newClientData, address: e.target.value})} />
-                            <button onClick={handleCreateClient} className="w-full bg-gray-800 text-white py-2 rounded text-sm font-bold hover:bg-gray-900 transition-colors">Guardar Cliente</button>
-                        </div>
-                    )}
+                              {/* MODO: CONSUMIDOR FINAL */}
+                              {clientMode === 'final' && (
+                                  <div className="p-3 bg-gray-50 rounded-lg border border-dashed border-gray-300 text-center text-gray-500 text-xs font-medium">
+                                      Se emitirá ticket a: <span className="font-bold text-gray-700">CONSUMIDOR FINAL</span>
+                                  </div>
+                              )}
 
-                    <button 
-                        onClick={handleNextStep}
-                        className={`w-full py-3.5 rounded-xl font-bold text-lg shadow-lg transition-all flex items-center justify-center gap-2
-                            ${(clientMode === 'named' && !selectedClient) 
-                                ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
-                                : 'bg-primary text-white hover:bg-green-600 active:scale-95'
-                            }`}
-                    >
-                        Continuar al Pago <User size={20}/>
-                    </button>
-                </div>
-            )}
+                              {/* MODO: BUSCAR */}
+                              {clientMode === 'search' && !isCreatingClient && !selectedClient && (
+                                  <div className="space-y-2">
+                                      <div className="relative">
+                                          <Search className="absolute left-3 top-2.5 text-gray-400" size={16}/>
+                                          <input 
+                                              type="text" 
+                                              placeholder="Buscar Cliente..." 
+                                              className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 text-sm"
+                                              value={searchTerm}
+                                              onChange={(e) => setSearchTerm(e.target.value)}
+                                              autoFocus
+                                          />
+                                      </div>
+                                      
+                                      {searchTerm.length > 1 && foundClients.length === 0 ? (
+                                          <button 
+                                              onClick={() => setIsCreatingClient(true)}
+                                              className="w-full py-3 border-2 border-dashed border-blue-200 text-blue-600 rounded-lg hover:bg-blue-50 font-bold flex items-center justify-center gap-2 text-xs"
+                                          >
+                                              <UserPlus size={16}/> Registrar Nuevo Cliente
+                                          </button>
+                                      ) : (
+                                          <div className="space-y-1">
+                                              {foundClients.map(client => (
+                                                  <div 
+                                                      key={client.id} 
+                                                      onClick={() => setSelectedClient(client)}
+                                                      className="p-2 hover:bg-blue-50 border border-transparent hover:border-blue-100 rounded-lg cursor-pointer flex justify-between items-center text-sm"
+                                                  >
+                                                      <div>
+                                                          <p className="font-bold text-gray-800">{client.name}</p>
+                                                          <p className="text-[10px] text-gray-500">RUC: {client.ruc}</p>
+                                                      </div>
+                                                      <Check size={14} className="text-blue-600"/>
+                                                  </div>
+                                              ))}
+                                          </div>
+                                      )}
+                                  </div>
+                              )}
 
-            {/* PASO 2: PAGO */}
-            {step === 2 && (
-                <div className="p-6 space-y-6">
-                    <div className="text-center mb-6">
-                        <p className="text-gray-500 text-sm mb-1">Total a cobrar</p>
-                        <h2 className="text-4xl font-black text-gray-800">₲ {total.toLocaleString()}</h2>
-                        <div className="text-xs text-gray-400 mt-2 bg-gray-100 inline-block px-3 py-1 rounded-full">
-                            Cliente: {selectedClient ? selectedClient.name : 'SIN NOMBRE'}
-                        </div>
-                    </div>
+                              {/* MODO: CREAR CLIENTE */}
+                              {isCreatingClient && (
+                                  <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 animate-fadeIn">
+                                      <div className="flex justify-between items-center mb-3">
+                                          <h4 className="font-bold text-gray-700 text-sm">Nuevo Cliente</h4>
+                                          <button onClick={() => setIsCreatingClient(false)}><X size={16} className="text-gray-400"/></button>
+                                      </div>
+                                      <div className="space-y-2">
+                                          <div className="relative">
+                                              <User className="absolute left-3 top-2.5 text-gray-400" size={14}/>
+                                              <input 
+                                                  type="text" placeholder="Razón Social / Nombre" 
+                                                  className="w-full pl-9 p-2 rounded border text-sm"
+                                                  value={newClientData.name} onChange={e => setNewClientData({...newClientData, name: e.target.value})}
+                                              />
+                                          </div>
+                                          <div className="grid grid-cols-2 gap-2">
+                                              <div className="relative">
+                                                  <Hash className="absolute left-3 top-2.5 text-gray-400" size={14}/>
+                                                  <input 
+                                                      type="text" placeholder="RUC / CI" 
+                                                      className="w-full pl-9 p-2 rounded border text-sm"
+                                                      value={newClientData.ruc} onChange={e => setNewClientData({...newClientData, ruc: e.target.value})}
+                                                  />
+                                              </div>
+                                              <div className="relative">
+                                                  <MapPin className="absolute left-3 top-2.5 text-gray-400" size={14}/>
+                                                  <input 
+                                                      type="text" placeholder="Dirección" 
+                                                      className="w-full pl-9 p-2 rounded border text-sm"
+                                                      value={newClientData.address} onChange={e => setNewClientData({...newClientData, address: e.target.value})}
+                                                  />
+                                              </div>
+                                          </div>
+                                          <div className="relative">
+                                              <Mail className="absolute left-3 top-2.5 text-gray-400" size={14}/>
+                                              <input 
+                                                  type="email" placeholder="Correo Electrónico (Opcional)" 
+                                                  className="w-full pl-9 p-2 rounded border text-sm"
+                                                  value={newClientData.email} onChange={e => setNewClientData({...newClientData, email: e.target.value})}
+                                              />
+                                          </div>
+                                          <button onClick={handleSaveNewClient} className="w-full bg-blue-600 text-white font-bold py-2 rounded text-xs hover:bg-blue-700">Guardar</button>
+                                      </div>
+                                  </div>
+                              )}
 
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
-                        {[
-                            {id: 'cash', label: 'Efectivo', icon: '💵'},
-                            {id: 'qr', label: 'QR', icon: '📱'},
-                            {id: 'card', label: 'Tarjeta', icon: '💳'},
-                            {id: 'transfer', label: 'Transf.', icon: '🏦'}
-                        ].map(m => (
-                            <button 
-                                key={m.id}
-                                onClick={() => setPaymentMethod(m.id)}
-                                className={`p-2 rounded-xl border-2 flex flex-col items-center gap-1 transition-all ${paymentMethod === m.id ? 'border-primary bg-green-50 text-primary' : 'border-gray-100 text-gray-400 hover:border-gray-200'}`}
-                            >
-                                <span className="text-xl">{m.icon}</span>
-                                <span className="text-[10px] font-bold uppercase">{m.label}</span>
-                            </button>
-                        ))}
-                    </div>
+                              {/* CLIENTE SELECCIONADO */}
+                              {selectedClient && (
+                                  <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                      <div>
+                                          <p className="font-bold text-blue-900 text-sm">{selectedClient.name}</p>
+                                          <p className="text-xs text-blue-700">RUC: {selectedClient.ruc}</p>
+                                      </div>
+                                      <button onClick={() => setSelectedClient(null)} className="p-1 bg-white rounded-full text-gray-400 hover:text-red-500 shadow-sm"><X size={14}/></button>
+                                  </div>
+                              )}
+                          </div>
 
-                    <div>
-                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Monto Recibido</label>
-                        <div className="relative">
-                            <span className={`absolute left-4 top-3.5 font-bold ${paymentMethod === 'cash' ? 'text-gray-400' : 'text-gray-300'}`}>₲</span>
-                            <input 
-                                type="number" 
-                                autoFocus={paymentMethod === 'cash'}
-                                disabled={paymentMethod !== 'cash'}
-                                value={amountPaid}
-                                onChange={(e) => setAmountPaid(e.target.value)}
-                                className={`w-full pl-10 pr-4 py-3 border-2 rounded-xl text-xl font-bold outline-none transition-colors
-                                    ${paymentMethod === 'cash' 
-                                        ? (isInsufficient ? 'bg-red-50 border-red-300 text-red-700' : 'bg-white border-gray-200 text-gray-800 focus:border-primary') 
-                                        : 'bg-gray-100 border-gray-100 text-gray-400 cursor-not-allowed'}`}
-                                placeholder={total.toString()}
-                            />
-                        </div>
-                        
-                        {/* MENSAJE DE ERROR SI ES INSUFICIENTE */}
-                        {isInsufficient && (
-                            <p className="text-xs text-red-500 font-bold mt-2 flex items-center gap-1 animate-pulse">
-                                <AlertTriangle size={14}/> Monto insuficiente. Faltan ₲ {(total - numericReceived).toLocaleString()}
-                            </p>
-                        )}
+                          <hr className="border-gray-100 mb-6"/>
 
-                        {paymentMethod !== 'cash' && (
-                            <p className="text-[10px] text-blue-500 mt-1 font-bold text-center">* Monto automático para pagos electrónicos</p>
-                        )}
-                    </div>
+                          {/* INPUT PAGO EFECTIVO */}
+                          {paymentMethod === 'cash' && (
+                              <div>
+                                  <label className="block text-gray-500 font-bold text-[10px] uppercase mb-1">Monto Recibido</label>
+                                  <div className="relative">
+                                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-lg">₲</span>
+                                      <input 
+                                          type="number" 
+                                          autoFocus
+                                          placeholder={total.toLocaleString()} 
+                                          value={amountPaid}
+                                          onChange={(e) => setAmountPaid(e.target.value)}
+                                          className={`w-full pl-8 pr-4 py-3 text-2xl font-black text-gray-800 bg-gray-50 border-2 rounded-xl outline-none transition-colors ${!isValidPayment ? 'border-red-300 bg-red-50' : 'border-gray-200 focus:border-green-500 focus:bg-white'}`}
+                                      />
+                                  </div>
+                                  
+                                  {!isValidPayment && (
+                                      <p className="text-red-500 text-xs font-bold mt-1 flex items-center gap-1"><AlertTriangle size={12}/> Monto insuficiente</p>
+                                  )}
 
-                    {paymentMethod === 'cash' && !isInsufficient && (
-                        <div className="mt-3 p-4 bg-gray-900 rounded-xl flex justify-between items-center text-white shadow-lg animate-fadeIn">
-                            <span className="font-bold text-sm uppercase opacity-80">Su Vuelto:</span>
-                            <span className="text-2xl font-mono font-bold text-green-400">
-                                ₲ {calculatedChange.toLocaleString()}
-                            </span>
-                        </div>
-                    )}
+                                  {numericReceived > total && (
+                                      <div className="mt-3 p-3 bg-green-100 rounded-lg flex justify-between items-center animate-fadeIn">
+                                          <span className="text-green-700 font-bold text-xs">VUELTO:</span>
+                                          <span className="text-xl font-black text-green-800">₲ {changeAmount.toLocaleString()}</span>
+                                      </div>
+                                  )}
+                              </div>
+                          )}
+                      </div>
 
-                    <button 
-                        onClick={handleConfirmSale}
-                        disabled={isInsufficient} // 2. BLOQUEO VISUAL
-                        className={`w-full py-4 rounded-xl font-bold text-lg transition-all flex items-center justify-center gap-2
-                            ${isInsufficient 
-                                ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                                : 'bg-primary text-white shadow-lg shadow-green-200 hover:bg-green-600 active:scale-95'}`}
-                    >
-                        {isInsufficient ? 'Monto Insuficiente' : 'CONFIRMAR VENTA'}
-                    </button>
-                    
-                    <button onClick={() => setStep(1)} className="w-full text-gray-400 text-sm py-2">Volver a datos de cliente</button>
-                </div>
-            )}
+                      {/* BOTÓN FINAL */}
+                      <div className="p-4 border-t border-gray-100 bg-white">
+                          <button 
+                              onClick={handleConfirmPayment}
+                              disabled={!isValidPayment || loading || isCreatingClient}
+                              className="w-full bg-black hover:bg-gray-800 text-white font-bold py-4 rounded-xl text-lg shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 flex justify-center items-center gap-2"
+                          >
+                              {loading ? '...' : 'CONFIRMAR COBRO'} <Check strokeWidth={3} size={20}/>
+                          </button>
+                      </div>
+                  </div>
+              ) : (
+                  /* PASO 2: TICKET GENERADO */
+                  <div className="flex flex-col h-full bg-gray-100">
+                      <div className="flex-1 overflow-y-auto p-6 flex justify-center items-start">
+                          <div className="shadow-lg">
+                              <TicketInvoice 
+                                  cart={ticketData.items} 
+                                  total={ticketData.total} 
+                                  amountPaid={ticketData.amountReceived} 
+                                  change={ticketData.change} 
+                                  paymentMethod={ticketData.paymentMethod} 
+                                  ticketId={ticketData.ticketId} 
+                                  date={ticketData.date} 
+                                  client={ticketData.client}
+                                  cashierName={ticketData.cashier}
+                                  subTotal={ticketData.subTotal}
+                                  discountTotal={ticketData.discountTotal}
+                                  appliedDiscounts={ticketData.appliedDiscounts}
+                              />
+                          </div>
+                      </div>
 
-            {/* PASO 3: CONFIRMACIÓN Y TICKET */}
-            {step === 3 && ticketData && (
-                <div className="bg-gray-100 flex flex-col h-full">
-                    
-                    {/* VISUALIZACIÓN DEL TICKET */}
-                    <div className="flex-1 overflow-y-auto p-4 flex justify-center">
-                        <div className="bg-white shadow-xl w-full max-w-[320px] mx-auto">
-                            <TicketInvoice 
-                                cart={ticketData.items} 
-                                total={ticketData.total}
-                                amountPaid={ticketData.amountReceived}
-                                change={ticketData.change}
-                                paymentMethod={ticketData.paymentMethod}
-                                ticketId={ticketData.ticketId}
-                                date={ticketData.date}
-                                client={ticketData.client} 
-                                cashierName={ticketData.cashier}
-                                copyLabel="ORIGINAL: CLIENTE"
-                            />
-                        </div>
-                    </div>
-
-                    {/* ÁREA DE IMPRESIÓN OCULTA */}
-                    <div id="printable-ticket" className="hidden print:block">
-                        <TicketInvoice 
-                            cart={ticketData.items} 
-                            total={ticketData.total} 
-                            amountPaid={ticketData.amountReceived} 
-                            change={ticketData.change} 
-                            paymentMethod={ticketData.paymentMethod} 
-                            ticketId={ticketData.ticketId} 
-                            date={ticketData.date} 
-                            client={ticketData.client}
-                            cashierName={ticketData.cashier}
-                        />
-                    </div>
-
-                    {/* BOTONES FINALES */}
-                    <div className="p-4 bg-white border-t border-gray-200 flex gap-3 shadow-up">
-                        <button 
-                            onClick={() => window.print()} 
-                            className="flex-1 bg-gray-900 hover:bg-black text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"
-                        >
-                            <Printer size={20} /> IMPRIMIR
-                        </button>
-                        <button 
-                            onClick={onFinalize} 
-                            className="px-6 py-3 bg-green-100 text-green-700 hover:bg-green-200 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors whitespace-nowrap"
-                        >
-                            <Check size={20} /> NUEVA VENTA
-                        </button>
-                    </div>
-                </div>
-            )}
-
+                      <div className="p-4 bg-white border-t border-gray-200 flex gap-3 shadow-up">
+                          <button onClick={() => window.print()} className="flex-1 bg-gray-900 hover:bg-black text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-sm">
+                              <Printer size={18} /> IMPRIMIR
+                          </button>
+                          <button onClick={onFinalize} className="px-6 py-3 bg-green-100 text-green-700 hover:bg-green-200 rounded-xl font-bold flex items-center justify-center gap-2 text-sm whitespace-nowrap">
+                              <Check size={18} /> NUEVA VENTA
+                          </button>
+                      </div>
+                  </div>
+              )}
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

@@ -22,20 +22,18 @@ body {
     overflow: visible !important;
   }
 
-  /* 3. Mostrar ticket */
-  #printable-ticket, #printable-ticket * {
-    visibility: visible;
-  }
+/* Agrega el ID del nuevo ticket a la lista de visibilidad */
+#printable-ticket, #printable-ticket *, 
+#printable-shift-close, #printable-shift-close * { /* <--- AGREGADO ESTE ID */
+  visibility: visible;
+}
 
-  /* 4. Posición absoluta para imprimir desde el inicio */
-  #printable-ticket {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100% !important;
-    margin: 0 !important;
-    padding: 0 !important;
-  }
+#printable-ticket, #printable-shift-close { /* <--- AGREGADO ESTE ID */
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+}
 
   /* 5. Configuración de página 'auto' para que no corte antes */
   @page {

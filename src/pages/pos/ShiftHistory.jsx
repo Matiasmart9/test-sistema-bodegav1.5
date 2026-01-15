@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, orderBy, getDocs, where } from 'firebase/firestore';
 import { db } from '../../firebase/config';
-import { Clock, User, DollarSign, Calendar, ChevronDown, ChevronUp, Loader2, Wallet, FileSpreadsheet, ChevronLeft, ChevronRight, TrendingUp } from 'lucide-react';
+import { Clock, User, DollarSign, Calendar, ChevronDown, ChevronUp, Loader2, Wallet, FileSpreadsheet, ChevronLeft, ChevronRight, TrendingUp, Tag } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 export default function ShiftHistory() {
@@ -70,24 +70,33 @@ export default function ShiftHistory() {
   const currentItems = filteredShifts.slice(indexOfFirstItem, indexOfLastItem);
   const totalPages = Math.ceil(filteredShifts.length / itemsPerPage);
 
-  // 4. EXPORTAR A EXCEL (CON CÁLCULO INTELIGENTE)
+  // 4. EXPORTAR A EXCEL (CON CÁLCULO DE DESCUENTOS Y HORA DE CIERRE)
   const handleExportExcel = async () => {
     setGeneratingExcel(true);
     try {
         // Preparamos los datos línea por línea
         const dataToExport = await Promise.all(filteredShifts.map(async (shift) => {
             
-            let finalProfit = shift.profitTotal;
+            // Consultamos las ventas para sumar descuentos y recalcular ganancia exacta
+            const qSales = query(collection(db, "sales"), where("shiftId", "==", shift.id));
+            const salesSnap = await getDocs(qSales);
+            
+            let totalDiscountShift = 0;
+            let finalProfit = 0;
 
-            // Si es un turno viejo y no tiene el campo 'profitTotal', lo calculamos ahora mismo
-            if (finalProfit === undefined) {
-                const qSales = query(collection(db, "sales"), where("shiftId", "==", shift.id));
-                const salesSnap = await getDocs(qSales);
-                finalProfit = salesSnap.docs.reduce((acc, doc) => {
-                    const s = doc.data();
-                    const saleProfit = s.items?.reduce((pAcc, item) => pAcc + (((item.price||0) - (item.cost||0)) * (item.quantity||0)), 0) || 0;
-                    return acc + saleProfit;
-                }, 0);
+            salesSnap.docs.forEach(doc => {
+                const s = doc.data();
+                // Sumar descuentos
+                totalDiscountShift += (s.discountTotal || 0);
+                
+                // Calcular ganancia real (Precio - Costo - Descuento)
+                const saleProfit = s.items?.reduce((pAcc, item) => pAcc + (((item.price||0) - (item.cost||0)) * (item.quantity||0)), 0) || 0;
+                finalProfit += (saleProfit - (s.discountTotal || 0));
+            });
+
+            // Si el turno ya tenía profitTotal guardado y no hay ventas en snapshot (caso raro), usamos ese como backup
+            if (salesSnap.empty && shift.profitTotal !== undefined) {
+                finalProfit = shift.profitTotal;
             }
 
             return {
@@ -96,11 +105,16 @@ export default function ShiftHistory() {
                 'Fecha Apertura': shift.openDate?.toLocaleDateString(),
                 'Hora Apertura': shift.openDate?.toLocaleTimeString(),
                 'Fecha Cierre': shift.closeDate?.toLocaleDateString() || '-',
-                'Hora Cierre': shift.closeDate?.toLocaleTimeString() || '-',
+                'Hora Cierre': shift.closeDate?.toLocaleTimeString() || '-', // <--- NUEVA COLUMNA AGREGADA
                 'Base Inicial': shift.startingCash || 0,
-                'Total Vendido': shift.salesTotal || 0,
-                'Ganancia Neta': finalProfit || 0, // <--- COLUMNA NUEVA
-                'Total Caja': (shift.startingCash || 0) + (shift.salesTotal || 0)
+                
+                // Columnas Financieras
+                'Venta Bruta (Est.)': (shift.salesTotal || 0) + totalDiscountShift, // Lo que hubiera sido sin descuento
+                'Descuentos (-)': totalDiscountShift,
+                'Total Neto Vendido': shift.salesTotal || 0, // Lo que realmente entró
+                
+                'Ganancia Neta': finalProfit,
+                'Total Caja (Base+Ventas)': (shift.startingCash || 0) + (shift.salesTotal || 0)
             };
         }));
 
@@ -117,7 +131,7 @@ export default function ShiftHistory() {
     }
   };
 
-  // 5. EXPANDIR DETALLES
+  // 5. EXPANDIR DETALLES (CALCULAR DESCUENTOS)
   const handleExpand = async (shift) => {
     if (expandedShiftId === shift.id) {
       setExpandedShiftId(null);
@@ -132,7 +146,9 @@ export default function ShiftHistory() {
       const q = query(collection(db, "sales"), where("shiftId", "==", shift.id));
       const snapshot = await getDocs(q);
       
-      let cash = 0, qr = 0, card = 0, transfer = 0, profitCalc = 0;
+      let cash = 0, qr = 0, card = 0, transfer = 0;
+      let profitCalc = 0;
+      let totalDiscounts = 0;
 
       snapshot.docs.forEach(doc => {
         const sale = doc.data();
@@ -144,9 +160,12 @@ export default function ShiftHistory() {
         else if (sale.paymentMethod === 'card') card += total;
         else if (sale.paymentMethod === 'transfer') transfer += total;
 
-        // Calcular Ganancia (Si no está guardada en el turno, la sumamos aquí para mostrarla en el detalle)
+        // Sumar Descuentos
+        totalDiscounts += (sale.discountTotal || 0);
+
+        // Calcular Ganancia Real
         const saleProfit = sale.items?.reduce((acc, item) => acc + (((item.price||0) - (item.cost||0)) * (item.quantity||0)), 0) || 0;
-        profitCalc += saleProfit;
+        profitCalc += (saleProfit - (sale.discountTotal || 0));
       });
 
       setShiftDetails({
@@ -154,7 +173,8 @@ export default function ShiftHistory() {
         digitalTotal: qr + card + transfer,
         breakdown: { cash, qr, card, transfer },
         ticketCount: snapshot.size,
-        calculatedProfit: profitCalc // Para mostrar si el turno no tenía el dato
+        calculatedProfit: profitCalc,
+        totalDiscounts: totalDiscounts // Guardamos el total de descuentos
       });
 
     } catch (error) {
@@ -201,17 +221,16 @@ export default function ShiftHistory() {
           const isOpen = shift.status === 'open';
           const isExpanded = expandedShiftId === shift.id;
           
-          // Ganancia: Usamos la guardada en el turno, o si estamos expandiendo y calculamos, usamos esa.
-          // Para la vista de lista rápida, si es viejo mostrará 0 o lo que haya.
+          // Visualización de ganancia en la tarjeta cerrada (aproximada si no se expande)
           const displayProfit = shift.profitTotal !== undefined ? shift.profitTotal : (isExpanded && shiftDetails ? shiftDetails.calculatedProfit : 0);
 
           return (
             <div key={shift.id} className={`bg-white rounded-xl border transition-all overflow-hidden ${isExpanded ? 'border-primary shadow-md' : 'border-gray-200 shadow-sm'}`}>
               
-              {/* CABECERA */}
+              {/* CABECERA DE LA TARJETA */}
               <div onClick={() => handleExpand(shift)} className="p-5 flex flex-col md:flex-row items-center justify-between cursor-pointer hover:bg-gray-50 gap-4">
                 
-                {/* Usuario */}
+                {/* Info Cajero */}
                 <div className="flex items-center gap-4 w-full md:w-auto">
                     <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-xl shrink-0 ${isOpen ? 'bg-green-500' : 'bg-gray-600'}`}>
                         {shift.userName?.charAt(0).toUpperCase()}
@@ -228,7 +247,7 @@ export default function ShiftHistory() {
                     </div>
                 </div>
 
-                {/* --- 3 COLUMNAS: BASE | VENTA | GANANCIA --- */}
+                {/* Resumen Rápido */}
                 <div className="flex items-center gap-8 w-full md:w-auto justify-between md:justify-end">
                     <div className="text-right hidden sm:block">
                         <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Base Inicial</p>
@@ -238,7 +257,6 @@ export default function ShiftHistory() {
                         <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Total Vendido</p>
                         <p className="font-black text-lg text-gray-800">₲ {(shift.salesTotal || 0).toLocaleString()}</p>
                     </div>
-                    {/* COLUMNA NUEVA */}
                     <div className="text-right">
                         <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider text-green-600">Ganancia Neta</p>
                         <p className="font-bold text-lg text-green-600">₲ {displayProfit.toLocaleString()}</p>
@@ -250,41 +268,52 @@ export default function ShiftHistory() {
                 </div>
               </div>
 
-              {/* DETALLES */}
+              {/* DETALLES EXPANDIDOS */}
               {isExpanded && (
                 <div className="bg-gray-50 border-t border-gray-100 p-6 animate-fadeIn">
                     {loadingDetails ? (
                         <div className="flex justify-center py-4"><Loader2 className="animate-spin text-gray-400"/></div>
                     ) : shiftDetails ? (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4"> 
                             
-                            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-                                <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2"><Wallet className="text-green-600" size={18}/> Efectivo en Caja</h4>
+                            {/* COLUMNA 1: EFECTIVO */}
+                            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm md:col-span-1">
+                                <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2"><Wallet className="text-green-600" size={18}/> Efectivo</h4>
                                 <div className="space-y-2 text-sm">
-                                    <div className="flex justify-between text-gray-500"><span>Base Inicial</span><span>₲ {(shift.startingCash || 0).toLocaleString()}</span></div>
-                                    <div className="flex justify-between text-green-700 font-bold"><span>Ventas Efectivo</span><span>₲ {shiftDetails.breakdown.cash.toLocaleString()}</span></div>
-                                    <div className="border-t border-dashed border-gray-300 my-2 pt-2 flex justify-between font-black text-gray-800 text-lg">
-                                        <span>A ENTREGAR:</span>
+                                    <div className="flex justify-between text-gray-500"><span>Base</span><span>₲ {(shift.startingCash || 0).toLocaleString()}</span></div>
+                                    <div className="flex justify-between text-green-700 font-bold"><span>Ventas</span><span>₲ {shiftDetails.breakdown.cash.toLocaleString()}</span></div>
+                                    <div className="border-t border-dashed border-gray-300 my-2 pt-2 flex justify-between font-black text-gray-800">
+                                        <span>ENTREGAR:</span>
                                         <span>₲ {((shift.startingCash || 0) + shiftDetails.breakdown.cash).toLocaleString()}</span>
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-                                <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2"><DollarSign className="text-blue-600" size={18}/> Medios Digitales</h4>
+                            {/* COLUMNA 2: DIGITAL */}
+                            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm md:col-span-1">
+                                <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2"><DollarSign className="text-blue-600" size={18}/> Digital</h4>
                                 <div className="space-y-2 text-sm">
                                     <div className="flex justify-between text-gray-500"><span>QR</span><span>₲ {shiftDetails.breakdown.qr.toLocaleString()}</span></div>
                                     <div className="flex justify-between text-gray-500"><span>Tarjeta</span><span>₲ {shiftDetails.breakdown.card.toLocaleString()}</span></div>
                                     <div className="flex justify-between text-gray-500"><span>Transf.</span><span>₲ {shiftDetails.breakdown.transfer.toLocaleString()}</span></div>
                                     <div className="border-t border-dashed border-gray-300 my-2 pt-2 flex justify-between font-bold text-blue-600">
-                                        <span>TOTAL DIGITAL:</span><span>₲ {shiftDetails.digitalTotal.toLocaleString()}</span>
+                                        <span>TOTAL:</span><span>₲ {shiftDetails.digitalTotal.toLocaleString()}</span>
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm text-center flex flex-col justify-center">
+                            {/* COLUMNA 3: DESCUENTOS */}
+                            <div className="bg-white p-4 rounded-xl border border-red-100 bg-red-50/20 shadow-sm text-center flex flex-col justify-center md:col-span-1">
+                                <Tag className="mx-auto text-red-400 mb-2" size={24}/>
+                                <p className="text-xs text-gray-400 font-bold uppercase">Total Descontado</p>
+                                <p className="text-2xl font-black text-red-500 my-1">- ₲ {shiftDetails.totalDiscounts.toLocaleString()}</p>
+                                <p className="text-[10px] text-gray-400">Descuentos aplicados en el turno</p>
+                            </div>
+
+                            {/* COLUMNA 4: RENTABILIDAD */}
+                            <div className="bg-white p-4 rounded-xl border border-green-100 bg-green-50/20 shadow-sm text-center flex flex-col justify-center md:col-span-1">
                                 <TrendingUp className="mx-auto text-green-500 mb-2" size={24}/>
-                                <p className="text-xs text-gray-400 font-bold uppercase">Rentabilidad del Turno</p>
+                                <p className="text-xs text-gray-400 font-bold uppercase">Rentabilidad Neta</p>
                                 <p className="text-3xl font-black text-green-600 my-1">₲ {shiftDetails.calculatedProfit.toLocaleString()}</p>
                                 <p className="text-[10px] text-gray-400">{shiftDetails.ticketCount} tickets emitidos</p>
                             </div>

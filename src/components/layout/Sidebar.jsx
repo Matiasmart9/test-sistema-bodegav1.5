@@ -14,7 +14,8 @@ import {
   LogOut, 
   Receipt,
   History,
-  Wallet // <--- 1. IMPORTAMOS EL ÍCONO NUEVO
+  Wallet,
+  Tag // <--- IMPORTAMOS EL ÍCONO TAG
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -37,19 +38,20 @@ const Sidebar = () => {
         subItems: [
           { path: '/pos', label: 'Terminal TPV' },
           { path: '/pos/history', label: 'Historial Ventas', icon: <Receipt size={16}/> },
-          // --- NUEVO ITEM AGREGADO ---
           { path: '/cajas', label: 'Historial Cajas', icon: <Wallet size={16}/> }
         ]
     },
     
-    // GRUPO ARTÍCULOS
+    // GRUPO ARTÍCULOS (ACTUALIZADO)
     { 
       path: '/productos-section', 
       icon: <Package size={20} />, 
       label: 'Artículos',
       subItems: [
         { path: '/productos', label: 'Lista de Productos' },
-        { path: '/articulos/historial', label: 'Historial Inventario', icon: <History size={16}/> }
+        { path: '/articulos/historial', label: 'Historial Inventario', icon: <History size={16}/> },
+        // --- NUEVA OPCIÓN DESCUENTOS ---
+        { path: '/descuentos', label: 'Descuentos', icon: <Tag size={16}/> } 
       ]
     },
     
@@ -92,7 +94,6 @@ const Sidebar = () => {
                   ${isActive && item.subItems ? 'text-green-700 font-medium' : ''} 
                 `}
               >
-                {/* ENLACE PADRE O CONTENEDOR DESPLEGABLE */}
                 {item.subItems ? (
                     <div className="flex items-center gap-3 w-full">
                         <span className={isActive ? 'text-green-600' : 'text-gray-400 group-hover:text-gray-600'}>{item.icon}</span>
@@ -105,7 +106,6 @@ const Sidebar = () => {
                     </Link>
                 )}
 
-                {/* FLECHA */}
                 {item.subItems && (
                   <span className="text-gray-400">
                     {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
@@ -113,7 +113,6 @@ const Sidebar = () => {
                 )}
               </div>
 
-              {/* SUBMENÚ */}
               {item.subItems && isExpanded && (
                 <div className="pl-10 space-y-1 mt-1 animate-fadeIn">
                   {item.subItems.map((sub) => (

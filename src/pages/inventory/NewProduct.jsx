@@ -37,18 +37,19 @@ export default function NewProduct() {
     variants: []
   });
 
-  // 1. CARGAR CATEGORÍAS
+  // 1. CARGAR CATEGORÍAS (CORREGIDO)
   const fetchCategories = async () => {
     try {
         const querySnapshot = await getDocs(collection(db, "categories"));
-        const cats = querySnapshot.docs.map(doc => doc.data().name);
+        const dbCats = querySnapshot.docs.map(doc => doc.data().name);
         
-        // Si no hay categorías (primera vez), ponemos unas por defecto
-        if (cats.length === 0) {
-            setCategoriesList(['General', 'Gaseosas', 'Bebidas', 'Lácteos', 'Limpieza', 'Almacén']);
-        } else {
-            setCategoriesList(cats.sort());
-        }
+        // Categorías base que SIEMPRE deben estar disponibles
+        const defaultCategories = ['General', 'Gaseosas', 'Bebidas', 'Cerveza', 'Lácteos', 'Limpieza', 'Almacén', 'Cigarrillos'];
+        
+        // Fusionamos las de la BD con las default y quitamos duplicados
+        const mergedCategories = Array.from(new Set([...defaultCategories, ...dbCats])).sort();
+        
+        setCategoriesList(mergedCategories);
     } catch (error) {
         console.error("Error cargando categorías:", error);
         setCategoriesList(['General']);
@@ -95,7 +96,9 @@ export default function NewProduct() {
       
       // 1. SI ES UNA CATEGORÍA NUEVA, LA GUARDAMOS EN LA COLECCIÓN 'categories'
       if (isNewCategory && formData.category) {
-        const catRef = doc(db, "categories", formData.category.toUpperCase()); 
+        // Guardamos en mayúsculas el ID para evitar duplicados como "Bebidas" y "bebidas"
+        const catId = formData.category.trim().toUpperCase();
+        const catRef = doc(db, "categories", catId); 
         await setDoc(catRef, { name: formData.category });
       }
 
@@ -174,8 +177,9 @@ export default function NewProduct() {
                             type="button" 
                             onClick={() => {
                                 setIsNewCategory(!isNewCategory);
-                                if(isNewCategory) setFormData(prev => ({ ...prev, category: categoriesList[0] || '' }));
-                                else setFormData(prev => ({ ...prev, category: '' }));
+                                // Si cambia a modo manual, limpia el campo. Si vuelve a lista, pone el primero o 'General'.
+                                if(!isNewCategory) setFormData(prev => ({ ...prev, category: '' }));
+                                else setFormData(prev => ({ ...prev, category: 'General' }));
                             }}
                             className="p-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 border border-gray-200"
                             title={isNewCategory ? "Volver a lista" : "Crear nueva categoría"}
@@ -207,7 +211,7 @@ export default function NewProduct() {
                         name="sku" 
                         value={formData.sku} 
                         onChange={handleChange}
-                        onKeyDown={handleKeyDown} // <--- ESTO EVITA QUE SE ENVÍE EL FORMULARIO AL ESCANEAR
+                        onKeyDown={handleKeyDown} // Evita submit al escanear
                         className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary" 
                     />
                 </div>

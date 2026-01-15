@@ -15,16 +15,16 @@ export default function NewProduct() {
 
   // ESTADO DE CATEGORÍAS
   const [categoriesList, setCategoriesList] = useState([]);
-  const [isNewCategory, setIsNewCategory] = useState(false); // Alternar entre Select e Input
+  const [isNewCategory, setIsNewCategory] = useState(false);
 
   // ESTADO INICIAL
   const [formData, setFormData] = useState({
     name: '',
-    category: 'General',
+    category: '', 
     description: '',
     color: '#cbd5e1',
     is_available: true,
-    sold_by: 'unit', // 'unit' o 'weight'
+    sold_by: 'unit',
     price: 0,
     cost: 0,
     tax: 10,
@@ -37,26 +37,26 @@ export default function NewProduct() {
     variants: []
   });
 
-  // 1. CARGAR CATEGORÍAS (CORREGIDO)
+  // 1. CARGAR CATEGORÍAS (SIN SUGERENCIAS)
   const fetchCategories = async () => {
     try {
         const querySnapshot = await getDocs(collection(db, "categories"));
-        const dbCats = querySnapshot.docs.map(doc => doc.data().name);
+        const dbCats = querySnapshot.docs.map(doc => doc.data().name).sort();
         
-        // Categorías base que SIEMPRE deben estar disponibles
-        const defaultCategories = ['General', 'Gaseosas', 'Bebidas', 'Cerveza', 'Lácteos', 'Limpieza', 'Almacén', 'Cigarrillos'];
-        
-        // Fusionamos las de la BD con las default y quitamos duplicados
-        const mergedCategories = Array.from(new Set([...defaultCategories, ...dbCats])).sort();
-        
-        setCategoriesList(mergedCategories);
+        setCategoriesList(dbCats);
+
+        // Lógica Inteligente: Si no hay categorías creadas, activar modo "Nueva" automáticamente
+        if (dbCats.length === 0) {
+            setIsNewCategory(true);
+        }
+
     } catch (error) {
         console.error("Error cargando categorías:", error);
-        setCategoriesList(['General']);
+        setIsNewCategory(true); // En caso de error, permitir escribir
     }
   };
 
-  // 2. CARGAR PRODUCTO (Si es edición)
+  // 2. CARGAR PRODUCTO (Edición)
   const fetchProduct = useCallback(async () => {
     if (!id) return;
     try {
@@ -65,6 +65,9 @@ export default function NewProduct() {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setFormData({ ...data, variants: data.variants || [] });
+        // Si la categoría del producto no está en la lista (ej: se borró), activar modo manual
+        // Esto se validará después de cargar categorías, pero por seguridad:
+        if (data.category) setIsNewCategory(false);
       } else {
         alert("Producto no encontrado");
         navigate('/productos');
@@ -91,18 +94,31 @@ export default function NewProduct() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // VALIDACIÓN: Categoría obligatoria
+    if (!formData.category || formData.category.trim() === "") {
+        alert("⚠️ La categoría es obligatoria. Seleccione una o cree una nueva.");
+        return;
+    }
+
     setLoading(true);
     try {
-      
-      // 1. SI ES UNA CATEGORÍA NUEVA, LA GUARDAMOS EN LA COLECCIÓN 'categories'
+      // 1. SI ES NUEVA CATEGORÍA, GUARDARLA
+      // Se guarda siempre que esté en modo 'isNewCategory' O que no exista en la lista actual
       if (isNewCategory && formData.category) {
-        // Guardamos en mayúsculas el ID para evitar duplicados como "Bebidas" y "bebidas"
-        const catId = formData.category.trim().toUpperCase();
+        const catNameClean = formData.category.trim();
+        // Usamos mayúsculas para el ID para evitar duplicados (ej: "Bebidas" == "BEBIDAS")
+        const catId = catNameClean.toUpperCase(); 
         const catRef = doc(db, "categories", catId); 
-        await setDoc(catRef, { name: formData.category });
+        
+        // Guardamos el nombre "bonito" que escribió el usuario
+        await setDoc(catRef, { name: catNameClean }); 
+        
+        // Actualizamos la lista local para que aparezca la próxima vez sin recargar
+        setCategoriesList(prev => [...prev, catNameClean].sort());
       }
 
-      // 2. GUARDAR EL PRODUCTO
+      // 2. GUARDAR PRODUCTO
       if (id) {
         await updateDoc(doc(db, "products", id), formData);
       } else {
@@ -117,11 +133,8 @@ export default function NewProduct() {
     }
   };
 
-  // --- FUNCIÓN PARA BLOQUEAR ENTER EN EL ESCÁNER ---
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault(); // Detiene el envío del formulario
-    }
+    if (e.key === 'Enter') e.preventDefault();
   };
 
   if (initialLoading) return <div className="p-8 text-center">Cargando producto...</div>;
@@ -137,7 +150,6 @@ export default function NewProduct() {
 
       <form onSubmit={handleSubmit} className="space-y-6">
         
-        {/* INFO BÁSICA */}
         <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
             <h3 className="text-lg font-bold text-gray-800 mb-4">Información General</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -146,9 +158,9 @@ export default function NewProduct() {
                     <input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary" placeholder="Ej: Stella Artois" required />
                 </div>
 
-                {/* --- SELECTOR DE CATEGORÍA DINÁMICO --- */}
+                {/* --- SELECCIÓN DE CATEGORÍA --- */}
                 <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1">Categoría</label>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">Categoría <span className="text-red-500">*</span></label>
                     <div className="flex gap-2">
                         {isNewCategory ? (
                             <input 
@@ -156,9 +168,10 @@ export default function NewProduct() {
                                 name="category" 
                                 value={formData.category} 
                                 onChange={handleChange}
-                                placeholder="Escribe la nueva categoría..."
+                                placeholder="Escriba la nueva categoría..."
                                 className="w-full px-4 py-2 border-2 border-primary/30 rounded-lg focus:outline-none focus:border-primary bg-blue-50/20"
                                 autoFocus
+                                required
                             />
                         ) : (
                             <select 
@@ -166,7 +179,9 @@ export default function NewProduct() {
                                 value={formData.category} 
                                 onChange={handleChange} 
                                 className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary bg-white"
+                                required
                             >
+                                <option value="">-- Seleccione --</option>
                                 {categoriesList.map(cat => (
                                     <option key={cat} value={cat}>{cat}</option>
                                 ))}
@@ -176,65 +191,46 @@ export default function NewProduct() {
                         <button 
                             type="button" 
                             onClick={() => {
-                                setIsNewCategory(!isNewCategory);
-                                // Si cambia a modo manual, limpia el campo. Si vuelve a lista, pone el primero o 'General'.
+                                // Si cambia a modo manual, limpiamos para obligar a escribir
                                 if(!isNewCategory) setFormData(prev => ({ ...prev, category: '' }));
-                                else setFormData(prev => ({ ...prev, category: 'General' }));
+                                setIsNewCategory(!isNewCategory);
                             }}
-                            className="p-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 border border-gray-200"
-                            title={isNewCategory ? "Volver a lista" : "Crear nueva categoría"}
+                            className="p-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 border border-gray-200 transition-colors"
+                            title={isNewCategory ? "Seleccionar de lista" : "Crear nueva categoría"}
                         >
                             {isNewCategory ? <RotateCcw size={20}/> : <Plus size={20}/>}
                         </button>
                     </div>
+                    {/* Mensaje de ayuda */}
+                    {categoriesList.length === 0 && isNewCategory && (
+                        <p className="text-xs text-orange-500 mt-1">No hay categorías registradas. Cree la primera aquí.</p>
+                    )}
                 </div>
 
-                {/* --- SELECTOR DE UNIDAD DE MEDIDA --- */}
                 <div>
                     <label className="block text-sm font-bold text-gray-700 mb-1">Se vende por</label>
-                    <select 
-                        name="sold_by" 
-                        value={formData.sold_by} 
-                        onChange={handleChange} 
-                        className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary bg-white"
-                    >
+                    <select name="sold_by" value={formData.sold_by} onChange={handleChange} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary bg-white">
                         <option value="unit">Unidad (u.)</option>
                         <option value="weight">Peso (KG)</option>
                     </select>
                 </div>
 
-                {/* --- CAMPO SKU CORREGIDO PARA ESCÁNER --- */}
                 <div>
                     <label className="block text-sm font-bold text-gray-700 mb-1">Código SKU / Barras</label>
-                    <input 
-                        type="text" 
-                        name="sku" 
-                        value={formData.sku} 
-                        onChange={handleChange}
-                        onKeyDown={handleKeyDown} // Evita submit al escanear
-                        className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary" 
-                    />
+                    <input type="text" name="sku" value={formData.sku} onChange={handleChange} onKeyDown={handleKeyDown} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary" />
                 </div>
             </div>
         </div>
 
         <ProductPricing formData={formData} setFormData={setFormData} />
 
-        {/* INVENTARIO SIMPLE (Si no hay variantes) */}
         {formData.variants.length === 0 && (
             <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
                 <h3 className="text-lg font-bold text-gray-800 mb-4">Control de Stock</h3>
                 <div className="grid grid-cols-2 gap-6">
                     <div>
                         <label className="block text-sm font-bold text-gray-700 mb-1">Stock Actual</label>
-                        <input 
-                            type="number" 
-                            step={formData.sold_by === 'weight' ? "0.001" : "1"} 
-                            name="current_stock" 
-                            value={formData.current_stock} 
-                            onChange={handleChange} 
-                            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary" 
-                        />
+                        <input type="number" step={formData.sold_by === 'weight' ? "0.001" : "1"} name="current_stock" value={formData.current_stock} onChange={handleChange} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary" />
                     </div>
                     <div>
                         <label className="block text-sm font-bold text-gray-700 mb-1">Stock Mínimo</label>
@@ -246,12 +242,7 @@ export default function NewProduct() {
 
         <ProductVariants formData={formData} setFormData={setFormData} />
 
-        {id && (
-            <ProductHistory 
-                productId={id} 
-                onStockUpdate={fetchProduct} 
-            />
-        )}
+        {id && <ProductHistory productId={id} onStockUpdate={fetchProduct} />}
 
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200 flex justify-end gap-4 z-40 md:pl-64">
             <button type="button" onClick={() => navigate('/productos')} className="px-6 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded-lg transition-colors">Cancelar</button>

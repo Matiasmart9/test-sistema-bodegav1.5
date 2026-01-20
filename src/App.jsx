@@ -17,8 +17,9 @@ import InventoryHistoryGlobal from './pages/inventory/InventoryHistoryGlobal';
 import ClientsList from './pages/clients/ClientsList';
 import Settings from './pages/config/Settings';
 import ShiftHistory from './pages/pos/ShiftHistory';
-import DiscountsList from './pages/discounts/DiscountsList'; // <--- Descuentos
-import DiscountForm from './pages/discounts/DiscountForm';   // <--- Descuentos
+import DiscountsList from './pages/discounts/DiscountsList'; 
+import DiscountForm from './pages/discounts/DiscountForm';   
+import ExpensesHistory from './pages/pos/ExpensesHistory';
 
 // --- PANTALLA DE CARGA GLOBAL ---
 const LoadingScreen = () => (
@@ -91,15 +92,19 @@ function App() {
             <Route path="productos/editar/:id" element={<NewProduct />} />
             <Route path="/articulos/historial" element={<InventoryHistoryGlobal />} />
             
-            {/* DESCUENTOS (NUEVO) */}
+            {/* Si quieres que el admin vea gastos también en la ruta raíz, puedes dejar esta línea, 
+                pero la importante es la de abajo en la sección de ventas */}
+            <Route path="gastos" element={<ExpensesHistory />} />
+            
+            {/* DESCUENTOS */}
             <Route path="descuentos" element={<DiscountsList />} />
             <Route path="descuentos/nuevo" element={<DiscountForm />} />
             <Route path="descuentos/editar/:id" element={<DiscountForm />} />
 
-            {/* EMPLEADOS (Rutas Corregidas) */}
+            {/* EMPLEADOS */}
             <Route path="empleados" element={<EmployeesList />} />
-            <Route path="empleados/nuevo" element={<EmployeeForm />} />        {/* ÚNICA RUTA DE CREACIÓN */}
-            <Route path="empleados/editar/:id" element={<EmployeeForm />} />   {/* ÚNICA RUTA DE EDICIÓN */}
+            <Route path="empleados/nuevo" element={<EmployeeForm />} />
+            <Route path="empleados/editar/:id" element={<EmployeeForm />} />
             <Route path="empleados/horas" element={<WorkHoursList />} />
             
             {/* CAJAS Y CLIENTES */}
@@ -115,13 +120,15 @@ function App() {
             </ProtectedRoute>
           } />
 
-          {/* HISTORIAL DE VENTAS */}
+          {/* --- HISTORIALES DE VENTAS Y GASTOS (CON LAYOUT) --- */}
+          {/* Esta sección arregla el problema de la pantalla blanca al usar MainLayout como wrapper */}
           <Route element={
             <ProtectedRoute allowedRoles={['admin', 'cashier']}>
                 <MainLayout /> 
             </ProtectedRoute>
           }>
               <Route path="/pos/history" element={<SalesHistory />} />
+              <Route path="/pos/gastos" element={<ExpensesHistory />} />
           </Route>
 
           {/* REDIRECCIONES */}

@@ -15,7 +15,8 @@ import {
   Receipt,
   History,
   Wallet,
-  Tag // <--- IMPORTAMOS EL ÍCONO TAG
+  TrendingDown,
+  Tag // <--- ÍCONO TAG
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -38,7 +39,8 @@ const Sidebar = () => {
         subItems: [
           { path: '/pos', label: 'Terminal TPV' },
           { path: '/pos/history', label: 'Historial Ventas', icon: <Receipt size={16}/> },
-          { path: '/cajas', label: 'Historial Cajas', icon: <Wallet size={16}/> }
+          { path: '/cajas', label: 'Historial Cajas', icon: <Wallet size={16}/> },
+          { path: '/pos/gastos', label: 'Historial Gastos', icon: <TrendingDown size={16}/> }
         ]
     },
     

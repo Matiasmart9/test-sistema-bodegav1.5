@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext'; 
+// --- WIDGET DE CLIMA ---
+import WeatherWidget from '../ui/WeatherWidget'; 
 import { 
   LayoutDashboard, 
   ShoppingCart, 
@@ -16,7 +18,8 @@ import {
   History,
   Wallet,
   TrendingDown,
-  Tag // <--- ÍCONO TAG
+  Tag,
+  FileBarChart // <--- NUEVO ÍCONO
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -40,11 +43,13 @@ const Sidebar = () => {
           { path: '/pos', label: 'Terminal TPV' },
           { path: '/pos/history', label: 'Historial Ventas', icon: <Receipt size={16}/> },
           { path: '/cajas', label: 'Historial Cajas', icon: <Wallet size={16}/> },
-          { path: '/pos/gastos', label: 'Historial Gastos', icon: <TrendingDown size={16}/> }
+          { path: '/pos/gastos', label: 'Historial Gastos', icon: <TrendingDown size={16}/> },
+          // --- NUEVA OPCIÓN AQUI ---
+          { path: '/pos/reporte-productos', label: 'Reporte Productos', icon: <FileBarChart size={16}/> }
         ]
     },
     
-    // GRUPO ARTÍCULOS (ACTUALIZADO)
+    // GRUPO ARTÍCULOS
     { 
       path: '/productos-section', 
       icon: <Package size={20} />, 
@@ -52,7 +57,6 @@ const Sidebar = () => {
       subItems: [
         { path: '/productos', label: 'Lista de Productos' },
         { path: '/articulos/historial', label: 'Historial Inventario', icon: <History size={16}/> },
-        // --- NUEVA OPCIÓN DESCUENTOS ---
         { path: '/descuentos', label: 'Descuentos', icon: <Tag size={16}/> } 
       ]
     },
@@ -75,9 +79,15 @@ const Sidebar = () => {
   return (
     <aside className="w-64 bg-white h-screen border-r border-gray-200 flex flex-col fixed left-0 top-0 z-50">
       {/* HEADER */}
-      <div className="h-16 flex items-center px-6 border-b border-gray-100">
-        <span className="text-xl font-bold text-gray-800">Bodega <span className="text-primary">El Grifo</span></span>
+      <div className="h-16 flex items-center px-3 border-b border-gray-100">
+        <span className="text-3xl font-bold text-gray-800">Bodega <span className="text-primary">el Grifo</span></span>
       </div>
+
+      {/* --- WIDGET DE CLIMA INTEGRADO --- */}
+      <div className="px-2">
+         <WeatherWidget />
+      </div>
+      {/* -------------------------------- */}
 
       {/* MENÚ DE NAVEGACIÓN */}
       <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Bodega El Grifo</string>
+    <string name="title_activity_main">Bodega El Grifo</string>
+    <string name="package_name">com.bodegaelgrifo.app</string>
+    <string name="custom_url_scheme">com.bodegaelgrifo.app</string>
+</resources>

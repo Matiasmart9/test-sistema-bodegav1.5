@@ -1,0 +1,6 @@
+{
+  "appId": "com.bodegaelgrifo.app",
+  "appName": "Bodega El Grifo",
+  "webDir": "dist", 
+  "bundledWebRuntime": false
+}

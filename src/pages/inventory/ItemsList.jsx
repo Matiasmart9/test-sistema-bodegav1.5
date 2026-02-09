@@ -18,11 +18,10 @@ export default function ItemsList() {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [stockFilter, setStockFilter] = useState("all");
 
-  // --- ESTADOS DE PAGINACIÓN ---
+  // --- PAGINACIÓN ---
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   
-  // --- ESTADO DE FILAS EXPANDIDAS ---
   const [expandedRows, setExpandedRows] = useState(new Set());
 
   // 1. CARGA INICIAL
@@ -31,16 +30,17 @@ export default function ItemsList() {
       try {
         setLoading(true);
         
+        // Cargar Productos
         const prodSnap = await getDocs(collection(db, "products"));
         const productsData = prodSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setProducts(productsData);
 
+        // Cargar Categorías (SOLO LAS CREADAS)
         const catSnap = await getDocs(collection(db, "categories"));
-        const dbCategories = catSnap.docs.map(doc => doc.id);
-        const defaultCategories = ['Sin categoría'];
+        // Usamos .name que es lo que se guarda en el producto
+        const dbCategories = catSnap.docs.map(doc => doc.data().name).sort();
         
-        const mergedCategories = [...new Set([...defaultCategories, ...dbCategories])];
-        setCategories(mergedCategories);
+        setCategories(dbCategories);
 
       } catch (error) {
         console.error("Error al cargar:", error);
@@ -69,14 +69,18 @@ export default function ItemsList() {
     setExpandedRows(newExpanded);
   };
 
+  // --- FILTRADO ---
   const getFilteredProducts = () => {
     return products.filter(product => {
+      // 1. Filtro Texto
       const matchesSearch = 
         product.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
         (product.sku && product.sku.toLowerCase().includes(searchTerm.toLowerCase()));
 
+      // 2. Filtro Categoría
       const matchesCategory = categoryFilter === "all" || product.category === categoryFilter;
 
+      // 3. Filtro Stock
       let matchesStock = true;
       if (stockFilter !== "all") {
         if (product.variants?.length > 0) {
@@ -97,6 +101,7 @@ export default function ItemsList() {
 
   const filteredProducts = getFilteredProducts();
 
+  // Paginación
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
@@ -109,23 +114,17 @@ export default function ItemsList() {
   const goToPreviousPage = () => setCurrentPage(prev => Math.max(prev - 1, 1));
   const goToNextPage = () => setCurrentPage(prev => Math.min(prev + 1, totalPages));
   
-  // --- LÓGICA VISUAL DE STOCK ---
   const calculateTotalStock = (product) => {
     if (product.variants && product.variants.length > 0) {
       const total = product.variants.reduce((acc, curr) => acc + (parseInt(curr.stock) || 0), 0);
       return <span className="text-blue-600 font-medium">{total} (Var)</span>;
     }
-    
     const stock = parseInt(product.current_stock) || 0;
     const min = parseInt(product.low_stock) || 0;
 
-    if (stock <= 0) {
-        return <span className="text-red-600 font-black bg-red-50 px-2 py-1 rounded">Sin Stock ({stock})</span>;
-    } else if (stock <= min) {
-        return <span className="text-red-500 font-bold">{stock}</span>;
-    } else {
-        return <span className="text-gray-800 font-medium">{stock}</span>;
-    }
+    if (stock <= 0) return <span className="text-red-600 font-black bg-red-50 px-2 py-1 rounded">Sin Stock ({stock})</span>;
+    else if (stock <= min) return <span className="text-red-500 font-bold">{stock}</span>;
+    else return <span className="text-gray-800 font-medium">{stock}</span>;
   };
 
   return (
@@ -138,6 +137,8 @@ export default function ItemsList() {
         
       <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 mb-6 bg-white p-4 rounded-lg shadow-sm border border-gray-100">
         <div className="flex flex-col md:flex-row gap-4 w-full xl:w-auto">
+          
+          {/* FILTRO CATEGORÍA */}
           <div className="flex flex-col">
             <label className="text-xs font-semibold text-gray-500 mb-1 ml-1">Categoría</label>
             <select 
@@ -210,7 +211,7 @@ export default function ItemsList() {
                       <th className="px-6 py-4">Producto</th>
                       <th className="px-6 py-4">Categoría</th>
                       <th className="px-6 py-4">Precio</th>
-                      <th className="px-6 py-4">Coste</th> {/* COLUMNA AGREGADA */}
+                      <th className="px-6 py-4">Coste</th> 
                       <th className="px-6 py-4">Stock</th>
                       <th className="px-6 py-4 text-center">Stock Min.</th>
                       <th className="px-6 py-4 text-right">Acciones</th>
@@ -250,18 +251,15 @@ export default function ItemsList() {
                             <td className="px-6 py-4 font-medium text-sm text-gray-600">
                               {hasVariants ? <span className="italic">Varía</span> : `₲ ${product.price?.toLocaleString()}`}
                             </td>
-                            {/* NUEVA CELDA DE COSTE */}
                             <td className="px-6 py-4 font-medium text-sm text-gray-500">
                               {hasVariants ? '-' : `₲ ${(product.cost || 0).toLocaleString()}`}
                             </td>
                             <td className="px-6 py-4 text-sm">
                                 {calculateTotalStock(product)}
                             </td>
-                            
                             <td className="px-6 py-4 text-center text-sm text-gray-500">
                                 {hasVariants ? '-' : (product.low_stock || 0)}
                             </td>
-
                             <td className="px-6 py-4 text-right">
                               <div className="flex items-center justify-end gap-2">
                                 <button 
@@ -282,7 +280,7 @@ export default function ItemsList() {
 
                           {isExpanded && hasVariants && (
                           <tr className="bg-gray-50/50">
-                              <td colSpan="8" className="px-4 py-4 md:px-10"> {/* Colspan aumentado a 8 */}
+                              <td colSpan="8" className="px-4 py-4 md:px-10">
                               <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm animate-fadeIn">
                                   <table className="w-full text-sm">
                                       <thead className="bg-gray-50 text-xs text-gray-500 uppercase font-semibold border-b border-gray-100">
@@ -325,7 +323,6 @@ export default function ItemsList() {
                 </table>
               </div>
 
-              {/* FOOTER PAGINACIÓN (Igual que antes) */}
               <div className="border-t border-gray-100 bg-gray-50/50 p-4 flex flex-col md:flex-row justify-between items-center gap-4">
                 <div className="flex items-center gap-2">
                   <button onClick={goToPreviousPage} disabled={currentPage === 1} className="w-8 h-8 flex items-center justify-center bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"><ChevronLeft size={16} /></button>

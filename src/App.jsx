@@ -20,6 +20,8 @@ import ShiftHistory from './pages/pos/ShiftHistory';
 import DiscountsList from './pages/discounts/DiscountsList'; 
 import DiscountForm from './pages/discounts/DiscountForm';   
 import ExpensesHistory from './pages/pos/ExpensesHistory';
+// --- NUEVO REPORTE ---
+import ProductSalesReport from './pages/pos/ProductSalesReport'; 
 
 // --- PANTALLA DE CARGA GLOBAL ---
 const LoadingScreen = () => (
@@ -129,6 +131,8 @@ function App() {
           }>
               <Route path="/pos/history" element={<SalesHistory />} />
               <Route path="/pos/gastos" element={<ExpensesHistory />} />
+              {/* --- RUTA DEL REPORTE DE PRODUCTOS --- */}
+              <Route path="/pos/reporte-productos" element={<ProductSalesReport />} />
           </Route>
 
           {/* REDIRECCIONES */}

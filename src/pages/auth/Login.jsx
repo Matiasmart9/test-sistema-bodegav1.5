@@ -4,11 +4,12 @@ import { signInWithEmailAndPassword } from 'firebase/auth';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
-import { Store, Loader2, AlertCircle, ArrowRight, Lock, User } from 'lucide-react';
+// CAMBIO 1: Importamos 'Beer' en lugar de 'Store'
+import { Beer, Loader2, AlertCircle, ArrowRight, Lock, Mail, Check } from 'lucide-react';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { loginManual } = useAuth(); // Usamos la función nueva del contexto
+  const { loginManual } = useAuth();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -23,32 +24,27 @@ export default function Login() {
     setLoading(true);
 
     try {
-      // 1. INTENTAR LOGIN COMO ADMINISTRADOR (FIREBASE AUTH)
       await signInWithEmailAndPassword(auth, email, password);
-      navigate('/'); // El AuthContext detectará el cambio y redirigirá
+      navigate('/'); 
       
     } catch (firebaseError) {
       console.log("No es admin de firebase, buscando en empleados...");
       
-      // 2. SI FALLA, BUSCAR EN COLECCIÓN DE EMPLEADOS (FIRESTORE)
       try {
         const q = query(
             collection(db, "employees"), 
             where("email", "==", email),
-            where("password", "==", password) // Buscamos coincidencia exacta
+            where("password", "==", password)
         );
         
         const querySnapshot = await getDocs(q);
 
         if (!querySnapshot.empty) {
-            // ¡ENCONTRADO!
             const empDoc = querySnapshot.docs[0];
             const employeeData = { id: empDoc.id, ...empDoc.data() };
             
-            // Activamos la sesión manual
             loginManual(employeeData);
             
-            // Redirigir según rol
             if (employeeData.role === 'admin') navigate('/');
             else navigate('/pos');
             
@@ -65,71 +61,122 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4 font-sans">
-      <div className="bg-white w-full max-w-sm rounded-2xl shadow-xl overflow-hidden">
+    <div className="flex flex-col lg:flex-row min-h-screen font-sans text-slate-900 bg-white">
         
-        {/* HEADER */}
-        <div className="bg-white p-8 pb-0 text-center">
-            <div className="w-16 h-16 bg-green-50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-green-600 shadow-sm">
-                <Store size={32} />
+        <style>{`
+            .subtle-pattern { background-color: #22C55E; }
+            .input-underline { position: relative; }
+            .input-underline::after {
+                content: '';
+                position: absolute;
+                bottom: -1px;
+                left: 0;
+                width: 0;
+                height: 2px;
+                background-color: #22C55E;
+                transition: width 0.3s ease;
+            }
+            .input-underline:focus-within::after { width: 100%; }
+        `}</style>
+
+        {/* COLUMNA IZQUIERDA (DESKTOP) */}
+        <div className="hidden lg:flex w-1/2 subtle-pattern relative overflow-hidden flex-col justify-center items-center p-12">
+            <div className="relative z-10 text-center">
+                <div className="mb-8 flex justify-center">
+                    <div className="bg-white/20 backdrop-blur-md p-8 rounded-[2rem] shadow-2xl">
+                        {/* CAMBIO 2: Ícono de Cerveza Grande */}
+                        <Beer size={80} className="text-white" strokeWidth={1.5} />
+                    </div>
+                </div>
+                <h1 className="text-7xl font-extrabold text-white tracking-tight leading-none drop-shadow-sm">
+                    Bodega<br/>El Grifo
+                </h1>
+                <p className="text-green-100 text-lg mt-6 font-medium">Gestión inteligente para tu negocio V1.5</p>
             </div>
-            <h1 className="text-2xl font-black text-gray-800 tracking-tight">Bodega El Grifo</h1>
-            <p className="text-gray-400 text-sm mt-1">Inicia sesión para continuar</p>
+            
+            <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-green-400 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
+            <div className="absolute -top-24 -right-24 w-96 h-96 bg-green-300 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
         </div>
 
-        {/* FORM */}
-        <div className="p-8">
-            <form onSubmit={handleLogin} className="space-y-5">
+        {/* COLUMNA DERECHA - FORMULARIO */}
+        <div className="w-full lg:w-1/2 flex flex-col justify-center items-center p-6 sm:p-12 md:p-24 bg-white relative">
+            <div className="w-full max-w-md">
                 
-                {/* EMAIL */}
-                <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">Email</label>
-                    <div className="relative">
-                        <User className="absolute left-3 top-3.5 text-gray-400" size={18}/>
-                        <input 
-                            type="email" 
-                            className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-green-500 focus:ring-4 focus:ring-green-50 transition-all text-gray-700 bg-gray-50 focus:bg-white"
-                            placeholder="juan@gmail.com"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                        />
+                {/* HEADER MÓVIL */}
+                <div className="lg:hidden flex flex-col items-center mb-12">
+                    <div className="bg-[#22C55E] p-4 rounded-2xl mb-4 shadow-lg shadow-green-200">
+                        {/* CAMBIO 3: Ícono de Cerveza Pequeño */}
+                        <Beer size={40} className="text-white" />
                     </div>
+                    <h2 className="text-3xl font-bold text-slate-800">Bodega El Grifo</h2>
                 </div>
 
-                {/* PASS */}
-                <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">Contraseña</label>
-                    <div className="relative">
-                        <Lock className="absolute left-3 top-3.5 text-gray-400" size={18}/>
-                        <input 
-                            type="password" 
-                            className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-green-500 focus:ring-4 focus:ring-green-50 transition-all text-gray-700 bg-gray-50 focus:bg-white font-mono" // font-mono para ver mejor los puntos
-                            placeholder="••••••••"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                        />
-                    </div>
+                <div className="mb-10 text-center lg:text-left">
+                    <h3 className="text-4xl font-bold mb-2 text-transparent bg-clip-text bg-gradient-to-r from-green-600 to-green-400">
+                        Bienvenido
+                    </h3>
+                    <p className="text-slate-400 text-lg">Inicia sesión para continuar.</p>
                 </div>
 
-                {/* ERROR */}
-                {error && (
-                    <div className="bg-red-50 text-red-500 p-3 rounded-lg text-sm flex items-center gap-2 animate-shake border border-red-100">
-                        <AlertCircle size={16} /> {error}
+                <form onSubmit={handleLogin} className="space-y-10">
+                    
+                    <div className="input-underline border-b border-slate-200 pb-2">
+                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Email</label>
+                        <div className="flex items-center">
+                            <Mail className="text-slate-400 mr-3" size={20} />
+                            <input 
+                                type="email" 
+                                className="w-full bg-transparent border-none p-0 text-lg placeholder-slate-300 focus:ring-0 text-slate-900 focus:outline-none"
+                                placeholder="tu@email.com"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                            />
+                        </div>
                     </div>
-                )}
 
-                <button 
-                    type="submit" 
-                    disabled={loading}
-                    className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-green-200 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-                >
-                    {loading ? <Loader2 className="animate-spin"/> : 'INGRESAR'}
-                    {!loading && <ArrowRight size={18} strokeWidth={3} />}
-                </button>
+                    <div className="input-underline border-b border-slate-200 pb-2">
+                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Contraseña</label>
+                        <div className="flex items-center">
+                            <Lock className="text-slate-400 mr-3" size={20} />
+                            <input 
+                                type="password" 
+                                className="w-full bg-transparent border-none p-0 text-lg placeholder-slate-300 focus:ring-0 text-slate-900 font-mono focus:outline-none"
+                                placeholder="••••••••"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                            />
+                        </div>
+                    </div>
 
-            </form>
+                    <div className="flex items-center">
+                        <label className="flex items-center cursor-pointer group">
+                            <div className="relative">
+                                <input type="checkbox" className="peer sr-only" />
+                                <div className="w-5 h-5 border-2 border-slate-300 rounded bg-white peer-checked:bg-[#22C55E] peer-checked:border-[#22C55E] transition-all"></div>
+                                <Check size={12} className="absolute top-1 left-1 text-white opacity-0 peer-checked:opacity-100 pointer-events-none" />
+                            </div>
+                            <span className="ml-2 text-sm text-slate-500 group-hover:text-slate-700 transition-colors">Recordarme</span>
+                        </label>
+                    </div>
+
+                    {error && (
+                        <div className="bg-red-50 text-red-500 p-4 rounded-xl text-sm flex items-center gap-3 animate-pulse border border-red-100">
+                            <AlertCircle size={20} /> {error}
+                        </div>
+                    )}
+
+                    <button 
+                        type="submit" 
+                        disabled={loading}
+                        className="w-full py-4 bg-[#22C55E] hover:bg-green-600 active:scale-[0.99] transition-all text-white font-bold rounded-xl shadow-xl shadow-green-500/30 flex items-center justify-center gap-3 group tracking-wide text-lg disabled:opacity-70 disabled:cursor-not-allowed"
+                    >
+                        {loading ? <Loader2 className="animate-spin"/> : 'INGRESAR'}
+                        {!loading && <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />}
+                    </button>
+
+                </form>
+            </div>
         </div>
-      </div>
     </div>
   );
 }

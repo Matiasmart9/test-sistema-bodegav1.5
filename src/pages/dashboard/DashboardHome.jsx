@@ -3,7 +3,7 @@ import { collection, query, getDocs, orderBy } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { 
   DollarSign, ShoppingBag, Users, TrendingUp, 
-  ArrowUpRight, Package, Calendar, Loader2, Filter, AlertTriangle, ChevronRight
+  ArrowUpRight, Package, Calendar, Loader2, Filter, AlertTriangle, ChevronRight, CheckCircle // <--- AGREGADO AQUÍ
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
@@ -237,7 +237,7 @@ export default function DashboardHome() {
       <div className="flex flex-col md:flex-row justify-between items-end mb-8 gap-4">
         <div>
             <h1 className="text-2xl font-bold text-gray-800">Panel de Control</h1>
-            <p className="text-sm text-gray-500">Resumen de rendimiento y alertas</p>
+            <p className="text-sm text-gray-500">Resumen de rendimiento y alertas V1.5</p>
         </div>
 
         {/* SELECTOR DE FILTRO */}
@@ -431,6 +431,7 @@ export default function DashboardHome() {
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                   {lowStockItems.length === 0 ? (
                       <div className="text-center py-10 text-gray-400">
+                          {/* CORRECCIÓN: IMPORTAR CheckCircle ARRIBA */}
                           <CheckCircle size={30} className="mx-auto mb-2 text-green-400"/>
                           <p>Todo en orden</p>
                       </div>

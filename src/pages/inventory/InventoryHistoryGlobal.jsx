@@ -61,15 +61,15 @@ export default function InventoryHistoryGlobal() {
 
     // Filtro Fecha Inicio
     if (dateStart) {
-        const start = new Date(dateStart);
-        start.setHours(0,0,0,0);
+        const [sy, sm, sd] = dateStart.split('-').map(Number);
+        const start = new Date(sy, sm - 1, sd, 0, 0, 0, 0);
         result = result.filter(log => log.dateObj >= start);
     }
 
     // Filtro Fecha Fin
     if (dateEnd) {
-        const end = new Date(dateEnd);
-        end.setHours(23,59,59,999);
+        const [ey, em, ed] = dateEnd.split('-').map(Number);
+        const end = new Date(ey, em - 1, ed, 23, 59, 59, 999);
         result = result.filter(log => log.dateObj <= end);
     }
 

@@ -47,8 +47,10 @@ export default function WorkHoursList() {
     if (!shift.openDate) return false;
     
     // Configurar fechas filtro (Inicio 00:00 - Fin 23:59)
-    const start = new Date(dateRange.start); start.setHours(0,0,0,0);
-    const end = new Date(dateRange.end); end.setHours(23,59,59,999);
+    const [sy, sm, sd] = dateRange.start.split('-').map(Number);
+    const [ey, em, ed] = dateRange.end.split('-').map(Number);
+    const start = new Date(sy, sm - 1, sd,  0,  0,  0,   0);
+    const end   = new Date(ey, em - 1, ed, 23, 59, 59, 999);
     
     // Comparar fecha de APERTURA con el rango
     return shift.openDate >= start && shift.openDate <= end;

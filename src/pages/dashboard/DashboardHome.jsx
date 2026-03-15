@@ -242,7 +242,7 @@ export default function DashboardHome() {
       <div className="flex flex-col md:flex-row justify-between items-end mb-8 gap-4">
         <div>
             <h1 className="text-2xl font-bold text-gray-800">Panel de Control</h1>
-            <p className="text-sm text-gray-500">Resumen de rendimiento y alertas V1.5</p>
+            <p className="text-sm text-gray-500">Resumen de rendimiento y alertas V1.7</p>
         </div>
 
         {/* SELECTOR DE FILTRO */}

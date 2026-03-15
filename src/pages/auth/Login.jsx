@@ -125,7 +125,7 @@ export default function Login() {
                 <h1 className="text-7xl font-extrabold text-white tracking-tight leading-none drop-shadow-sm">
                     Bodega<br/>El Grifo
                 </h1>
-                <p className="text-green-100 text-lg mt-6 font-medium">Gestión inteligente para tu negocio V1.5</p>
+                <p className="text-green-100 text-lg mt-6 font-medium">Gestión inteligente para tu negocio V1.7</p>
             </div>
             
             <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-green-400 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>

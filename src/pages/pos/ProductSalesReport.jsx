@@ -264,7 +264,7 @@ export default function ProductSalesReport() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-            <FileBarChart className="text-purple-600" /> Reporte Financiero de Ventas
+            <FileBarChart className="text-purple-600" /> Reporte Financiero de Ventas V1.7
           </h1>
           <p className="text-sm text-gray-500">
             Detalle de ventas por fecha — margen, costo de bienes y reembolsos.

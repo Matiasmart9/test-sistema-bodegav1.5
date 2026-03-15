@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { sileo } from 'sileo';
 import { X, Check, Search, UserPlus, User, Mail, Printer, AlertTriangle, MapPin, Hash } from 'lucide-react';
 import { collection, getDocs, addDoc, query, where } from 'firebase/firestore'; 
 import { db } from '../../firebase/config';
@@ -14,7 +15,6 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
   // ESTADOS CLIENTE
   const [clientMode, setClientMode] = useState('final'); 
   const [searchTerm, setSearchTerm] = useState('');
-  const [foundClients, setFoundClients] = useState([]);
   const [selectedClient, setSelectedClient] = useState(null);
   const [isCreatingClient, setIsCreatingClient] = useState(false);
   
@@ -25,32 +25,30 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
   const isValidPayment = paymentMethod === 'cash' ? (amountPaid === '' || numericReceived >= total) : true;
   const changeAmount = paymentMethod === 'cash' && numericReceived > total ? numericReceived - total : 0;
 
-  // BUSCAR CLIENTES
+  // ── Clientes: cargar UNA sola vez al montar, filtrar en memoria ───────────
+  const [allClients, setAllClients] = useState([]);
+
   useEffect(() => {
-    const searchClients = async () => {
-        if (searchTerm.length < 2) {
-            setFoundClients([]);
-            return;
-        }
-        try {
-            const q = query(collection(db, "clients")); 
-            const snap = await getDocs(q);
-            const clients = snap.docs.map(doc => ({id: doc.id, ...doc.data()}));
-            
-            const filtered = clients.filter(c => 
-                c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                c.ruc.includes(searchTerm)
-            );
-            setFoundClients(filtered.slice(0, 5));
-        } catch (error) { console.error(error); }
+    const loadClients = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'clients'));
+        setAllClients(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (e) { console.error(e); }
     };
-    const timer = setTimeout(() => { if(clientMode === 'search') searchClients(); }, 500);
-    return () => clearTimeout(timer);
-  }, [searchTerm, clientMode]);
+    loadClients();
+  }, []);
+
+  // Filtrado en memoria (sin re-consultar Firestore)
+  const foundClients = searchTerm.length >= 2
+    ? allClients.filter(c =>
+        c.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        String(c.ruc || '').includes(searchTerm)
+      ).slice(0, 5)
+    : [];
 
   // GUARDAR NUEVO CLIENTE
   const handleSaveNewClient = async () => {
-      if(!newClientData.name || !newClientData.ruc) return alert("Nombre y RUC obligatorios");
+      if(!newClientData.name || !newClientData.ruc) return sileo.warning({ title: 'Nombre y RUC son obligatorios.' });
       setLoading(true);
       try {
           const docRef = await addDoc(collection(db, "clients"), newClientData);
@@ -58,7 +56,7 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
           setSelectedClient(newClient);
           setClientMode('search'); 
           setIsCreatingClient(false);
-      } catch (error) { console.error(error); alert("Error al guardar cliente"); } 
+      } catch (error) { console.error(error); sileo.error({ title: 'Error al guardar cliente.' }); }
       finally { setLoading(false); }
   };
 
@@ -79,7 +77,7 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
           setTicketData(result);
           setStep(2); 
       } else {
-          alert("Error al procesar la venta");
+          sileo.error({ title: 'Error al procesar la venta.', description: 'Intente nuevamente.' });
       }
       setLoading(false);
   };
@@ -350,7 +348,7 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
                           <button onClick={() => window.print()} className="flex-1 bg-gray-900 hover:bg-black text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-sm">
                               <Printer size={18} /> IMPRIMIR
                           </button>
-                          <button onClick={onFinalize} className="px-6 py-3 bg-green-100 text-green-700 hover:bg-green-200 rounded-xl font-bold flex items-center justify-center gap-2 text-sm whitespace-nowrap">
+                          <button onClick={() => onFinalize(cart)} className="px-6 py-3 bg-green-100 text-green-700 hover:bg-green-200 rounded-xl font-bold flex items-center justify-center gap-2 text-sm whitespace-nowrap">
                               <Check size={18} /> NUEVA VENTA
                           </button>
                       </div>

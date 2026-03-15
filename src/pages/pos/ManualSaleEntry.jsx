@@ -12,7 +12,7 @@ import {
   ClipboardList, ChevronDown, Info, Loader2, X
 } from 'lucide-react';
 import DiscountModal from './DiscountModal';
-import { toast } from '../../components/ui/Toast';
+import { sileo } from 'sileo';
 
 // ── Helper: genera el próximo ticket (atómico, igual que PosTerminal) ─────────
 async function generateTicketId(db) {
@@ -123,7 +123,7 @@ export default function ManualSaleEntry() {
       if (emps.length === 1) setCashierId(emps[0].id);
     } catch (e) {
       console.error('Error cargando catálogo:', e);
-      toast.error('Error al cargar productos o empleados.');
+      sileo.error('Error al cargar productos o empleados.');
     } finally {
       setLoadingInit(false);
     }
@@ -197,12 +197,12 @@ export default function ManualSaleEntry() {
   // GUARDAR VENTA MANUAL
   // ────────────────────────────────────────────────────────────────────────────
   const handleSave = async () => {
-    if (cart.length === 0)  return toast.warning('Agregue al menos un producto al ticket.');
-    if (!cashierId)         return toast.warning('Seleccione el cajero que realizó la venta.');
-    if (!saleDate)          return toast.warning('Seleccione la fecha de la venta.');
+    if (cart.length === 0)  return sileo.warning('Agregue al menos un producto al ticket.');
+    if (!cashierId)         return sileo.warning('Seleccione el cajero que realizó la venta.');
+    if (!saleDate)          return sileo.warning('Seleccione la fecha de la venta.');
 
     const cashier = employees.find(e => e.id === cashierId);
-    if (!cashier)           return toast.warning('Cajero no encontrado, recargue la página.');
+    if (!cashier)           return sileo.warning('Cajero no encontrado, recargue la página.');
 
     const [sy, sm, sd] = saleDate.split('-').map(Number);
     const saleDateTime = new Date(sy, sm - 1, sd, 12, 0, 0);
@@ -269,14 +269,14 @@ export default function ManualSaleEntry() {
       }
 
       setSavedTicketId(ticketId);
-      toast.success(`✅ Venta ${ticketId} guardada para ${cashier.name}.`);
+      sileo.success(`✅ Venta ${ticketId} guardada para ${cashier.name}.`);
       setCart([]);
       setNotes('');
       setAppliedDiscounts([]);
 
     } catch (e) {
       console.error(e);
-      toast.error('Error al guardar la venta manual. Intente nuevamente.');
+      sileo.error('Error al guardar la venta manual. Intente nuevamente.');
     } finally {
       setSaving(false);
     }

@@ -14,7 +14,8 @@ import PaymentModal from './PaymentModal';
 import ShiftCloseTicket from './ShiftCloseTicket';
 import DiscountModal from './DiscountModal';
 import WeatherWidget from '../../components/ui/WeatherWidget';
-import { toast } from '../../components/ui/Toast';
+import { sileo } from 'sileo';
+import ConfirmModal from '../../components/ui/ConfirmModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER: genera el próximo ID de ticket usando transacción atómica en Firestore
@@ -61,6 +62,9 @@ async function generateTicketId(db) {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function PosTerminal() {
   const { userData, logout } = useAuth();
+
+  // --- MODAL DE CONFIRMACIÓN PARA ACCIONES DESTRUCTIVAS ---
+  const [confirmModal, setConfirmModal] = useState(null);
 
   // --- ESTADOS PRINCIPALES ---
   const [products,          setProducts]          = useState([]);
@@ -173,12 +177,21 @@ export default function PosTerminal() {
       setShowOptionsMenu(false);
     } catch (error) {
       console.error('Error fetching sales:', error);
-      toast.error('Error al cargar ventas recientes: ' + error.message);
+      sileo.error({ title: 'Error al cargar ventas recientes: ' + error.message });
     }
   };
 
   const handleVoidSale = async (sale) => {
-    if (!window.confirm(`¿Anular venta ${sale.ticketId} por ₲ ${sale.total.toLocaleString()}?\n\nEl stock será devuelto.`)) return;
+    setConfirmModal({
+      title: `¿Anular venta ${sale.ticketId}?`,
+      description: `Total: ₲ ${sale.total.toLocaleString()}. El stock de todos los productos será devuelto automáticamente.`,
+      confirmText: 'Sí, anular venta',
+      variant: 'void',
+      onConfirm: () => _executeVoidSale(sale),
+    });
+  };
+
+  const _executeVoidSale = async (sale) => {
     setLoading(true);
     try {
       // 1. Marcar venta como cancelada
@@ -222,12 +235,12 @@ export default function PosTerminal() {
       }
       await stockBatch.commit();
 
-      toast.success('Venta anulada. Stock devuelto correctamente.');
+      sileo.success({ title: 'Venta anulada. Stock devuelto correctamente.' });
       setShowVoidModal(false);
       await fetchProducts();
     } catch (error) {
       console.error(error);
-      toast.error('Error al anular la venta.');
+      sileo.error({ title: 'Error al anular la venta.' });
     } finally {
       setLoading(false);
     }
@@ -235,7 +248,7 @@ export default function PosTerminal() {
 
   // ─── Apertura de turno ───────────────────────────────────────────────────
   const handleOpenShift = async () => {
-    if (!startingCash) return toast.warning('Ingrese el monto inicial de caja.');
+    if (!startingCash) return sileo.warning({ title: 'Ingrese el monto inicial de caja.' });
     try {
       const newShift = {
         userId:       userData.id,
@@ -251,14 +264,14 @@ export default function PosTerminal() {
       setCurrentShift({ id: docRef.id, ...newShift });
       setShowOpenModal(false);
     } catch (e) {
-      toast.error('Error al abrir el turno.');
+      sileo.error({ title: 'Error al abrir el turno.' });
     }
   };
 
   // ─── Gastos ──────────────────────────────────────────────────────────────
   const handleAddExpense = async () => {
     if (!expenseData.amount || !expenseData.reason) {
-      return toast.warning('Complete el monto y el motivo del gasto.');
+      return sileo.warning({ title: 'Complete el monto y el motivo del gasto.' });
     }
     try {
       await addDoc(collection(db, 'shift_movements'), {
@@ -269,12 +282,12 @@ export default function PosTerminal() {
         date:    new Date(),
         user:    userData.name,
       });
-      toast.success('Gasto registrado correctamente.');
+      sileo.success({ title: 'Gasto registrado correctamente.' });
       setShowExpenseModal(false);
       setExpenseData({ amount: '', reason: '' });
     } catch (e) {
       console.error(e);
-      toast.error('Error al guardar el gasto.');
+      sileo.error({ title: 'Error al guardar el gasto.' });
     }
   };
 
@@ -293,7 +306,7 @@ export default function PosTerminal() {
       setShowCloseShiftModal(true);
     } catch (e) {
       console.error(e);
-      toast.error('Error al calcular el cierre de caja.');
+      sileo.error({ title: 'Error al calcular el cierre de caja.' });
     } finally {
       setLoading(false);
     }
@@ -309,7 +322,7 @@ export default function PosTerminal() {
       });
       logout();
     } catch (e) {
-      toast.error('Error al cerrar el turno.');
+      sileo.error({ title: 'Error al cerrar el turno.' });
     }
   };
 
@@ -433,13 +446,19 @@ export default function PosTerminal() {
     }
   };
 
-  const handleFinalizeSale = async () => {
+  const handleFinalizeSale = (soldCart) => {
     setCart([]);
     setAppliedDiscounts([]);
     setShowPaymentModal(false);
-    setLoading(true);
-    await fetchProducts();
-    setLoading(false);
+    // Actualizar stock en memoria — sin re-descargar toda la colección de Firestore
+    setProducts(prev => prev.map(p => {
+      const soldItem = soldCart.find(c => c.id === p.id);
+      if (!soldItem) return p;
+      return {
+        ...p,
+        stock: Math.max(0, parseFloat(p.stock || 0) - soldItem.quantity),
+      };
+    }));
   };
 
   // ─── Operaciones del carrito ─────────────────────────────────────────────
@@ -450,7 +469,7 @@ export default function PosTerminal() {
 
       if (existing) {
         if (existing.quantity + 1 > stockDisponible) {
-          toast.warning('⚠️ Stock insuficiente para agregar más unidades.');
+          sileo.warning({ title: '⚠️ Stock insuficiente para agregar más unidades.' });
           return prev;
         }
         return prev.map(item =>
@@ -459,7 +478,7 @@ export default function PosTerminal() {
       }
 
       if (stockDisponible < 1) {
-        toast.warning('⚠️ Este producto no tiene stock disponible.');
+        sileo.warning({ title: '⚠️ Este producto no tiene stock disponible.' });
         return prev;
       }
       return [...prev, { ...product, quantity: 1 }];
@@ -474,7 +493,7 @@ export default function PosTerminal() {
       const minQty = item.soldBy === 'weight' ? 0.001 : 1;
       const newQty = Math.max(minQty, item.quantity + delta);
       if (delta > 0 && newQty > item.stock) {
-        toast.warning('⚠️ Límite de stock alcanzado.');
+        sileo.warning({ title: '⚠️ Límite de stock alcanzado.' });
         return item;
       }
       return { ...item, quantity: parseFloat(newQty.toFixed(3)) };
@@ -487,7 +506,7 @@ export default function PosTerminal() {
     let val = item.soldBy === 'weight' ? parseFloat(value) : parseInt(value);
     if (isNaN(val)) val = 0;
     if (val > item.stock) {
-      toast.warning(`⚠️ Solo hay ${item.stock} en stock.`);
+      sileo.warning({ title: `⚠️ Solo hay ${item.stock} en stock.` });
       val = item.stock;
     }
     if (value === '') return;
@@ -587,6 +606,14 @@ export default function PosTerminal() {
   return (
     <div className="flex h-screen bg-slate-100 overflow-hidden font-sans">
 
+      {/* Modal de confirmación para acciones destructivas */}
+      {confirmModal && (
+        <ConfirmModal
+          {...confirmModal}
+          onClose={() => setConfirmModal(null)}
+        />
+      )}
+
       {/* ── MODALES ──────────────────────────────────────────────────────── */}
 
       {showPaymentModal && (
@@ -595,7 +622,7 @@ export default function PosTerminal() {
           cart={cart}
           onClose={() => setShowPaymentModal(false)}
           onProcessPayment={handleProcessSale}
-          onFinalize={handleFinalizeSale}
+          onFinalize={(soldCart) => handleFinalizeSale(soldCart || cart)}
         />
       )}
 
@@ -1015,7 +1042,13 @@ export default function PosTerminal() {
           {/* Botones acción */}
           <div className="grid grid-cols-4 gap-3">
             <button
-              onClick={() => { if (window.confirm('¿Vaciar el carrito?')) { setCart([]); setAppliedDiscounts([]); } }}
+              onClick={() => setConfirmModal({
+                    title: '¿Vaciar el carrito?',
+                    description: 'Se eliminarán todos los productos agregados.',
+                    confirmText: 'Sí, vaciar',
+                    variant: 'warning',
+                    onConfirm: () => { setCart([]); setAppliedDiscounts([]); },
+                  })}
               disabled={cart.length === 0}
               className="col-span-1 flex items-center justify-center p-3 rounded-xl border-2 border-slate-100 text-gray-400 hover:border-rose-100 hover:bg-rose-50 hover:text-rose-500 disabled:opacity-50 transition-all"
             >

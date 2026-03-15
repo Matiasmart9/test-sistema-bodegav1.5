@@ -1,3 +1,4 @@
+import { sileo } from 'sileo';
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { collection, addDoc, updateDoc, doc, getDoc } from 'firebase/firestore';
@@ -36,7 +37,7 @@ export default function EmployeeForm() {
                 canRegisterExpenses: data.canRegisterExpenses || false // Cargar el permiso existente o false
             });
           } else {
-            alert("Empleado no encontrado");
+            sileo.error({ title: 'Empleado no encontrado.' });
             navigate('/empleados');
           }
         } catch (error) {
@@ -52,8 +53,8 @@ export default function EmployeeForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (!formData.name || !formData.password) return alert("Nombre y Contraseña son obligatorios");
-    if (formData.password.length < 4) return alert("La contraseña debe tener al menos 4 caracteres");
+    if (!formData.name || !formData.password) return sileo.warning({ title: "Nombre y Contraseña son obligatorios" });
+    if (formData.password.length < 4) return sileo.warning({ title: 'La contraseña debe tener al menos 4 caracteres.' });
 
     setLoading(true);
     try {
@@ -68,18 +69,18 @@ export default function EmployeeForm() {
 
       if (isEditMode) {
         await updateDoc(doc(db, "employees", id), employeeData);
-        alert("Empleado actualizado correctamente.");
+        sileo.success({ title: "Empleado actualizado correctamente." });
       } else {
         await addDoc(collection(db, "employees"), {
             ...employeeData,
             createdAt: new Date()
         });
-        alert("Empleado creado con éxito.");
+        sileo.success({ title: "Empleado creado con éxito." });
       }
       navigate('/empleados');
     } catch (error) {
       console.error("Error guardando:", error);
-      alert("Error al guardar.");
+      sileo.error({ title: "Error al guardar." });
     } finally {
       setLoading(false);
     }

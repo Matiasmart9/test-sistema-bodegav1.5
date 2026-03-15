@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import {
   collection, query, where, getDocs, doc,
-  updateDoc, increment, addDoc,
-  getAggregateFromServer, sum
+  updateDoc, increment, addDoc
 } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import {
@@ -13,7 +12,8 @@ import {
 } from 'lucide-react';
 import TicketInvoice from './TicketInvoice';
 import * as XLSX from 'xlsx';
-import { toast } from '../../components/ui/Toast';
+import { sileo } from 'sileo';
+import ConfirmModal from '../../components/ui/ConfirmModal';
 
 export default function SalesHistory() {
   const { userData } = useAuth();
@@ -37,6 +37,7 @@ export default function SalesHistory() {
   const [selectedSale,     setSelectedSale]     = useState(null);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [expenseData,      setExpenseData]      = useState({ amount: '', reason: '' });
+  const [confirmModal,     setConfirmModal]     = useState(null);
 
   // ───────────────────────────────────────────────────────────────────────────
   // 1. CARGA DATOS POR RANGO DE FECHAS
@@ -91,14 +92,19 @@ export default function SalesHistory() {
       setMergedHistory(combined);
     } catch (error) {
       console.error('Error cargando datos:', error);
-      toast.error('Error al cargar los movimientos.');
+      sileo.error({ title: 'Error al cargar los movimientos.' });
     } finally {
       setLoading(false);
     }
   };
 
   // ───────────────────────────────────────────────────────────────────────────
-  // 2. BALANCE GLOBAL con getAggregateFromServer (sin bajar todos los docs)
+  // ───────────────────────────────────────────────────────────────────────────
+  // 2. BALANCE GLOBAL
+  //    getAggregateFromServer con where() SIEMPRE requiere índice compuesto.
+  //    Solución definitiva: 3 getDocs en paralelo, suma en el cliente.
+  //    - sales:            traemos solo 'total' (pocas lecturas por campo)
+  //    - shift_movements:  solo gastos activos
   // ───────────────────────────────────────────────────────────────────────────
   const fetchGlobalBalance = async () => {
     if (userData?.role !== 'admin') return;
@@ -107,18 +113,29 @@ export default function SalesHistory() {
       const salesRef    = collection(db, 'sales');
       const expensesRef = collection(db, 'shift_movements');
 
-      const [allSalesAgg, canceledAgg, expensesAgg] = await Promise.all([
-        getAggregateFromServer(salesRef, { total: sum('total') }),
-        getAggregateFromServer(
-          query(salesRef, where('status', '==', 'canceled')),
-          { total: sum('total') }
-        ),
-        getAggregateFromServer(expensesRef, { total: sum('amount') }),
+      // 3 queries en paralelo — sin ningún getAggregateFromServer con where
+      const [allSalesSnap, canceledSnap, expensesSnap] = await Promise.all([
+        getDocs(query(salesRef)),
+        getDocs(query(salesRef,    where('status', '==', 'canceled'))),
+        getDocs(query(expensesRef, where('type',   '==', 'expense'))),
       ]);
 
-      const revenue  = (allSalesAgg.data().total  || 0) - (canceledAgg.data().total || 0);
-      const expenses = expensesAgg.data().total || 0;
-      setGlobalBalance(revenue - expenses);
+      const totalSales    = allSalesSnap.docs.reduce(
+        (acc, d) => acc + parseFloat(d.data().total  || 0), 0
+      );
+      const canceledTotal = canceledSnap.docs.reduce(
+        (acc, d) => acc + parseFloat(d.data().total  || 0), 0
+      );
+      const totalExpenses = expensesSnap.docs.reduce(
+        (acc, d) => {
+          const data = d.data();
+          // Excluir gastos anulados — igual que la versión anterior
+          return data.status !== 'canceled' ? acc + parseFloat(data.amount || 0) : acc;
+        }, 0
+      );
+
+      const revenue = totalSales - canceledTotal;
+      setGlobalBalance(revenue - totalExpenses);
     } catch (e) {
       console.error('Error balance global:', e);
       setGlobalBalance(null);
@@ -135,7 +152,7 @@ export default function SalesHistory() {
   // ───────────────────────────────────────────────────────────────────────────
   const handleAddExpenseAdmin = async () => {
     if (!expenseData.amount || !expenseData.reason) {
-      return toast.warning('Complete el monto y el motivo del gasto.');
+      return sileo.warning({ title: 'Complete el monto y el motivo del gasto.' });
     }
     try {
       await addDoc(collection(db, 'shift_movements'), {
@@ -147,19 +164,28 @@ export default function SalesHistory() {
         user:    userData.name,
         status:  'active',
       });
-      toast.success('Gasto registrado correctamente.');
+      sileo.success({ title: 'Gasto registrado correctamente.' });
       setShowExpenseModal(false);
       setExpenseData({ amount: '', reason: '' });
       fetchData();
       fetchGlobalBalance();
     } catch (e) {
       console.error(e);
-      toast.error('Error al registrar el gasto.');
+      sileo.error({ title: 'Error al registrar el gasto.' });
     }
   };
 
-  const handleCancelSale = async (sale) => {
-    if (!window.confirm(`¿⚠️ ESTÁ SEGURO?\n\nVa a anular el Ticket #${sale.ticketId}.`)) return;
+  const handleCancelSale = (sale) => {
+    setConfirmModal({
+      title:       `¿Anular ticket #${sale.ticketId}?`,
+      description: `Total: ₲ ${sale.total.toLocaleString()}. El stock será devuelto.`,
+      confirmText: 'Sí, anular',
+      variant:     'void',
+      onConfirm:   () => _executeCancelSale(sale),
+    });
+  };
+
+  const _executeCancelSale = async (sale) => {
     setLoading(true);
     try {
       for (const item of sale.items) {
@@ -174,19 +200,26 @@ export default function SalesHistory() {
       });
       fetchData();
       fetchGlobalBalance();
-      toast.success('Ticket anulado correctamente.');
+      sileo.success({ title: 'Ticket anulado correctamente.' });
     } catch (error) {
       console.error(error);
-      toast.error('Error al anular el ticket.');
+      sileo.error({ title: 'Error al anular el ticket.' });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCancelExpense = async (expense) => {
-    if (!window.confirm(
-      `¿Anular este gasto de ₲ ${expense.amount.toLocaleString()}?\n\nEl dinero volverá al balance.`
-    )) return;
+  const handleCancelExpense = (expense) => {
+    setConfirmModal({
+      title:       '¿Anular este gasto?',
+      description: `₲ ${expense.amount.toLocaleString()} — ${expense.reason || ''}. El monto volverá al balance.`,
+      confirmText: 'Sí, anular gasto',
+      variant:     'warning',
+      onConfirm:   () => _executeCancelExpense(expense),
+    });
+  };
+
+  const _executeCancelExpense = async (expense) => {
     setLoading(true);
     try {
       await updateDoc(doc(db, 'shift_movements', expense.id), {
@@ -196,15 +229,14 @@ export default function SalesHistory() {
       });
       fetchData();
       fetchGlobalBalance();
-      toast.success('Gasto anulado correctamente.');
+      sileo.success({ title: 'Gasto anulado correctamente.' });
     } catch (error) {
       console.error(error);
-      toast.error('Error al anular el gasto.');
+      sileo.error({ title: 'Error al anular el gasto.' });
     } finally {
       setLoading(false);
     }
   };
-
   // ───────────────────────────────────────────────────────────────────────────
   // KPIs del PERÍODO FILTRADO
   // ───────────────────────────────────────────────────────────────────────────
@@ -313,6 +345,11 @@ export default function SalesHistory() {
   // ───────────────────────────────────────────────────────────────────────────
   return (
     <div className="p-6 max-w-7xl mx-auto pb-20">
+
+      {/* Modal de confirmación para acciones destructivas */}
+      {confirmModal && (
+        <ConfirmModal {...confirmModal} onClose={() => setConfirmModal(null)} />
+      )}
 
       {/* ── MODAL GASTO ──────────────────────────────────────────────── */}
       {showExpenseModal && (

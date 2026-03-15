@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { sileo } from 'sileo';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import {
@@ -63,13 +64,19 @@ export default function Settings() {
     fetchConfig();
   }, []);
 
-  // ── Guardar ───────────────────────────────────────────────────────────────
+  // ── Guardar con sileo.promise() ───────────────────────────────────────────
   const handleSave = async (e) => {
     e.preventDefault();
     setSaving(true);
-    setFeedback(null);
     try {
-      await setDoc(doc(db, 'settings', 'general'), config);
+      await sileo.promise(
+        setDoc(doc(db, 'settings', 'general'), config),
+        {
+          loading: { title: 'Guardando configuración...' },
+          success: { title: 'Configuración guardada correctamente.' },
+          error:   { title: 'Error al guardar.', description: 'Verifique su conexión e intente nuevamente.' },
+        }
+      );
       setFeedback({ type: 'success', msg: 'Configuración guardada correctamente.' });
     } catch (error) {
       console.error(error);

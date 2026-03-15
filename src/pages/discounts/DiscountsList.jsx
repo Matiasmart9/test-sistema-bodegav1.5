@@ -1,3 +1,5 @@
+import { sileo } from 'sileo';
+import ConfirmModal from '../../components/ui/ConfirmModal';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Tag, Edit, Trash2, Loader2, AlertCircle } from 'lucide-react';
@@ -7,6 +9,7 @@ import { db } from '../../firebase/config';
 export default function DiscountsList() {
   const navigate = useNavigate();
   const [discounts, setDiscounts] = useState([]);
+  const [confirmModal, setConfirmModal] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -19,17 +22,31 @@ export default function DiscountsList() {
     fetchDiscounts();
   }, []);
 
-  const handleDelete = async (id) => {
-    if (window.confirm("¿Eliminar este descuento?")) {
-      await deleteDoc(doc(db, "discounts", id));
-      setDiscounts(prev => prev.filter(d => d.id !== id));
-    }
+  const handleDelete = (id) => {
+    setConfirmModal({
+      title: '¿Eliminar este descuento?',
+      description: 'El descuento dejará de estar disponible en el punto de venta.',
+      confirmText: 'Sí, eliminar',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, "discounts", id));
+          setDiscounts(prev => prev.filter(d => d.id !== id));
+          sileo.success({ title: 'Descuento eliminado.' });
+        } catch (e) { sileo.error({ title: 'Error al eliminar.' }); }
+      },
+    });
   };
 
   if (loading) return <div className="flex justify-center p-10"><Loader2 className="animate-spin text-primary"/></div>;
 
   return (
     <div className="max-w-5xl mx-auto p-6">
+      {/* Modal de confirmación */}
+      {confirmModal && (
+        <ConfirmModal {...confirmModal} onClose={() => setConfirmModal(null)} />
+      )}
+
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
             <Tag className="text-primary"/> Descuentos y Promos

@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
+import ConfirmModal from '../ui/ConfirmModal';
 
 export default function ProductVariants({ formData, setFormData }) {
   const [optionDefinitions, setOptionDefinitions] = useState([]);
+  const [confirmModal, setConfirmModal] = useState(null);
 
   // --- LÓGICA DE GENERACIÓN ---
   const cartesianProduct = (arr) => {
@@ -98,10 +100,16 @@ export default function ProductVariants({ formData, setFormData }) {
   };
 
   const deleteVariant = (index) => {
-    if(window.confirm("¿Eliminar esta variante?")) {
+    setConfirmModal({
+      title: '¿Eliminar esta variante?',
+      description: 'La variante será eliminada de la lista. Esta acción no se puede deshacer.',
+      confirmText: 'Sí, eliminar',
+      variant: 'danger',
+      onConfirm: () => {
         const newVariants = formData.variants.filter((_, i) => i !== index);
         setFormData(prev => ({ ...prev, variants: newVariants }));
-    }
+      },
+    });
   };
 
   // --- RENDERIZADO VISUAL ---
@@ -123,6 +131,9 @@ export default function ProductVariants({ formData, setFormData }) {
 
   return (
     <div className="space-y-6">
+      {confirmModal && (
+        <ConfirmModal {...confirmModal} onClose={() => setConfirmModal(null)} />
+      )}
       
       {/* 1. GENERADOR */}
       <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">

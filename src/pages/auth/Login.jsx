@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, increment } from 'firebase/firestore';
 import { auth, db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
-// CAMBIO 1: Importamos 'Beer' en lugar de 'Store'
-import { Beer, Loader2, AlertCircle, ArrowRight, Lock, Mail, Check } from 'lucide-react';
+import { sileo } from 'sileo';
+import { Beer, Loader2, AlertCircle, ArrowRight, Lock, Mail, Check, ShieldOff } from 'lucide-react';
+
+const MAX_ATTEMPTS = 3;
 
 export default function Login() {
   const navigate = useNavigate();
@@ -24,17 +26,16 @@ export default function Login() {
     setLoading(true);
 
     try {
+      // 1. Intentar login de admin con Firebase Auth
       await signInWithEmailAndPassword(auth, email, password);
       navigate('/'); 
       
     } catch (firebaseError) {
-      console.log("No es admin de firebase, buscando en empleados...");
-      
+      // 2. Buscar en empleados
       try {
         const q = query(
             collection(db, "employees"), 
             where("email", "==", email),
-            where("password", "==", password)
         );
         
         const querySnapshot = await getDocs(q);
@@ -42,7 +43,40 @@ export default function Login() {
         if (!querySnapshot.empty) {
             const empDoc = querySnapshot.docs[0];
             const employeeData = { id: empDoc.id, ...empDoc.data() };
-            
+
+            // ── Verificar si está bloqueado ───────────────────────────
+            if (employeeData.isBlocked) {
+              setError('Cuenta bloqueada por múltiples intentos fallidos. Contactá al administrador.');
+              setLoading(false);
+              return;
+            }
+
+            // ── Verificar contraseña ──────────────────────────────────
+            if (employeeData.password !== password) {
+              const newAttempts = (employeeData.loginAttempts || 0) + 1;
+              const shouldBlock  = newAttempts >= MAX_ATTEMPTS;
+
+              await updateDoc(doc(db, 'employees', empDoc.id), {
+                loginAttempts: increment(1),
+                ...(shouldBlock ? { isBlocked: true } : {}),
+              });
+
+              if (shouldBlock) {
+                setError(`Cuenta bloqueada por ${MAX_ATTEMPTS} intentos fallidos. Contactá al administrador.`);
+              } else {
+                setError(`Contraseña incorrecta. Intentos restantes: ${MAX_ATTEMPTS - newAttempts}`);
+              }
+              setLoading(false);
+              return;
+            }
+
+            // ── Login exitoso — resetear intentos ─────────────────────
+            await updateDoc(doc(db, 'employees', empDoc.id), {
+              loginAttempts: 0,
+              isBlocked:     false,
+              lastLogin:     new Date(),
+            });
+
             loginManual(employeeData);
             
             if (employeeData.role === 'admin') navigate('/');
@@ -91,7 +125,7 @@ export default function Login() {
                 <h1 className="text-7xl font-extrabold text-white tracking-tight leading-none drop-shadow-sm">
                     Bodega<br/>El Grifo
                 </h1>
-                <p className="text-green-100 text-lg mt-6 font-medium">Versión V1.6</p>
+                <p className="text-green-100 text-lg mt-6 font-medium">Gestión inteligente para tu negocio V1.5</p>
             </div>
             
             <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-green-400 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>

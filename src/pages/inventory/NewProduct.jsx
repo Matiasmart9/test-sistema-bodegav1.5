@@ -1,17 +1,24 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { collection, addDoc, doc, getDoc, updateDoc, getDocs, setDoc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
+import { useAuth } from '../../context/AuthContext';
+import { sileo } from 'sileo';
 import { Save, ArrowLeft, Loader2, Plus, RotateCcw } from 'lucide-react';
 import ProductPricing from '../../components/products/ProductPricing';
 import ProductVariants from '../../components/products/ProductVariants';
 import ProductHistory from '../../components/products/ProductHistory';
+import ProductPriceHistory from '../../components/products/ProductPriceHistory';
 
 export default function NewProduct() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { userData } = useAuth();
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(!!id);
+
+  // Guardar precios originales para comparar al guardar
+  const originalPrices = useRef({ price: null, cost: null });
 
   // ESTADO DE CATEGORÍAS
   const [categoriesList, setCategoriesList] = useState([]);
@@ -65,11 +72,11 @@ export default function NewProduct() {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setFormData({ ...data, variants: data.variants || [] });
-        // Si la categoría del producto no está en la lista (ej: se borró), activar modo manual
-        // Esto se validará después de cargar categorías, pero por seguridad:
+        // Guardar precios originales para detectar cambios al guardar
+        originalPrices.current = { price: data.price || 0, cost: data.cost || 0 };
         if (data.category) setIsNewCategory(false);
       } else {
-        alert("Producto no encontrado");
+        sileo.error({ title: 'Producto no encontrado.' });
         navigate('/productos');
       }
     } catch (error) {
@@ -96,9 +103,9 @@ export default function NewProduct() {
     e.preventDefault();
     
     // VALIDACIÓN: Categoría obligatoria
-    if (!formData.category || formData.category.trim() === "") {
-        alert("⚠️ La categoría es obligatoria. Seleccione una o cree una nueva.");
-        return;
+    if (!formData.category || formData.category.trim() === '') {
+      sileo.warning({ title: '⚠️ La categoría es obligatoria.', description: 'Seleccioná una o creá una nueva.' });
+      return;
     }
 
     setLoading(true);
@@ -120,14 +127,46 @@ export default function NewProduct() {
 
       // 2. GUARDAR PRODUCTO
       if (id) {
-        await updateDoc(doc(db, "products", id), formData);
+        await updateDoc(doc(db, 'products', id), formData);
+
+        // ── Registrar cambio de precio si hubo modificación ──────────
+        const { price: oldPrice, cost: oldCost } = originalPrices.current;
+        const newPrice = parseFloat(formData.price || 0);
+        const newCost  = parseFloat(formData.cost  || 0);
+
+        if (oldPrice !== null && (oldPrice !== newPrice || oldCost !== newCost)) {
+          await addDoc(collection(db, 'price_logs'), {
+            productId:  id,
+            productName: formData.name,
+            oldPrice,
+            newPrice,
+            oldCost,
+            newCost,
+            user:  userData?.name || 'Admin',
+            date:  new Date(),
+          });
+        }
+
+        sileo.success({ title: 'Producto actualizado correctamente.' });
       } else {
-        await addDoc(collection(db, "products"), formData);
+        const newDoc = await addDoc(collection(db, 'products'), formData);
+        // Registrar precio inicial
+        await addDoc(collection(db, 'price_logs'), {
+          productId:   newDoc.id,
+          productName: formData.name,
+          oldPrice:    null,
+          newPrice:    parseFloat(formData.price || 0),
+          oldCost:     null,
+          newCost:     parseFloat(formData.cost  || 0),
+          user:  userData?.name || 'Admin',
+          date:  new Date(),
+        });
+        sileo.success({ title: 'Producto creado correctamente.', description: 'Ya está disponible en el catálogo.' });
       }
       navigate('/productos');
     } catch (error) {
-      console.error("Error guardando:", error);
-      alert("Error al guardar producto");
+      console.error('Error guardando:', error);
+      sileo.error({ title: 'Error al guardar el producto.', description: 'Verifique su conexión e intente nuevamente.' });
     } finally {
       setLoading(false);
     }
@@ -243,6 +282,8 @@ export default function NewProduct() {
         <ProductVariants formData={formData} setFormData={setFormData} />
 
         {id && <ProductHistory productId={id} onStockUpdate={fetchProduct} />}
+
+        {id && <ProductPriceHistory productId={id} />}
 
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200 flex justify-end gap-4 z-40 md:pl-64">
             <button type="button" onClick={() => navigate('/productos')} className="px-6 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded-lg transition-colors">Cancelar</button>

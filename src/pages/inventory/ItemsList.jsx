@@ -1,3 +1,5 @@
+import { sileo } from 'sileo';
+import ConfirmModal from '../../components/ui/ConfirmModal';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, PackageOpen, Edit, Trash2, ChevronDown, ChevronRight, ChevronLeft } from 'lucide-react';
@@ -23,6 +25,7 @@ export default function ItemsList() {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   
   const [expandedRows, setExpandedRows] = useState(new Set());
+  const [confirmModal, setConfirmModal] = useState(null);
 
   // 1. CARGA INICIAL
   useEffect(() => {
@@ -51,15 +54,23 @@ export default function ItemsList() {
     fetchData();
   }, []);
 
-  const handleDelete = async (id, name) => {
-    if (window.confirm(`¿Estás seguro de que deseas eliminar "${name}"?`)) {
-      try {
-        await deleteDoc(doc(db, "products", id));
-        setProducts(products.filter(product => product.id !== id));
-      } catch (error) {
-        console.error("Error al eliminar:", error);
-      }
-    }
+  const handleDelete = (id, name) => {
+    setConfirmModal({
+      title: `¿Eliminar "${name}"?`,
+      description: 'Esta acción no se puede deshacer. El producto será eliminado permanentemente.',
+      confirmText: 'Sí, eliminar',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, "products", id));
+          setProducts(products.filter(product => product.id !== id));
+          sileo.success({ title: 'Producto eliminado correctamente.' });
+        } catch (error) {
+          console.error("Error al eliminar:", error);
+          sileo.error({ title: 'Error al eliminar el producto.' });
+        }
+      },
+    });
   };
 
   const toggleRow = (id) => {
@@ -129,6 +140,11 @@ export default function ItemsList() {
 
   return (
     <div className="max-w-7xl mx-auto pb-20">
+      {/* Modal de confirmación */}
+      {confirmModal && (
+        <ConfirmModal {...confirmModal} onClose={() => setConfirmModal(null)} />
+      )}
+
       
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-800">Inventario</h1>

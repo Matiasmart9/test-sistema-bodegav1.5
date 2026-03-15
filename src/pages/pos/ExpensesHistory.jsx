@@ -1,3 +1,4 @@
+import { sileo } from 'sileo';
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { collection, query, where, getDocs, orderBy, doc, updateDoc } from 'firebase/firestore';
@@ -11,6 +12,7 @@ export default function ExpensesHistory() {
   // --- ESTADOS ---
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [confirmModal, setConfirmModal] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   
   // Paginación
@@ -69,23 +71,27 @@ export default function ExpensesHistory() {
   }, [dateRange]); 
 
   // --- 2. ANULAR GASTO ---
-  const handleCancelExpense = async (id, amount, reason) => {
-      if(!window.confirm(`¿Seguro que deseas anular este gasto?\n"${reason}" de ₲ ${amount.toLocaleString()}`)) return;
-
-      try {
-          const expenseRef = doc(db, "shift_movements", id);
-          await updateDoc(expenseRef, { 
-              status: 'canceled',
-              canceledBy: userData.name,
-              canceledAt: new Date()
+  const handleCancelExpense = (id, amount, reason) => {
+    setConfirmModal({
+      title: '¿Anular este gasto?',
+      description: `"${reason}" — ₲ ${amount.toLocaleString()}. El monto volverá al balance.`,
+      confirmText: 'Sí, anular',
+      variant: 'warning',
+      onConfirm: async () => {
+        try {
+          await updateDoc(doc(db, 'shift_movements', id), {
+            status: 'canceled',
+            canceledBy: userData.name,
+            canceledAt: new Date()
           });
-          
-          alert("Gasto anulado correctamente.");
-          fetchExpenses(); 
-      } catch (error) {
-          console.error("Error al anular:", error);
-          alert("No se pudo anular el gasto.");
-      }
+          sileo.success({ title: 'Gasto anulado correctamente.' });
+          fetchExpenses();
+        } catch (error) {
+          console.error(error);
+          sileo.error({ title: 'No se pudo anular el gasto.' });
+        }
+      },
+    });
   };
 
   // --- 3. EXPORTAR EXCEL ---
@@ -124,6 +130,11 @@ export default function ExpensesHistory() {
   return (
     <div className="max-w-6xl mx-auto pb-20">
       
+      {/* Modal de confirmación */}
+      {confirmModal && (
+        <ConfirmModal {...confirmModal} onClose={() => setConfirmModal(null)} />
+      )}
+
       {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-end mb-6 gap-4">
         <div>

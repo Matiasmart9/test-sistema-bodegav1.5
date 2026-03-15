@@ -1,3 +1,4 @@
+import { sileo } from 'sileo';
 import React, { useState, useEffect } from 'react';
 import { collection, addDoc, getDocs, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
@@ -13,6 +14,7 @@ export default function ClientsList() {
   const [editingId, setEditingId] = useState(null);
   
   // 1. AGREGAMOS 'email' AL ESTADO INICIAL
+  const [confirmModal, setConfirmModal] = useState(null);
   const [formData, setFormData] = useState({ name: '', ruc: '', phone: '', address: '', email: '' });
 
   // Cargar Clientes
@@ -46,7 +48,7 @@ export default function ClientsList() {
       fetchClients();
     } catch (error) {
       console.error(error);
-      alert("Error al guardar cliente");
+      sileo.error({ title: "Error al guardar cliente" });
     }
   };
 
@@ -56,11 +58,20 @@ export default function ClientsList() {
     setShowModal(true);
   };
 
-  const handleDelete = async (id) => {
-    if (confirm("¿Eliminar cliente?")) {
-      await deleteDoc(doc(db, "clients", id));
-      fetchClients();
-    }
+  const handleDelete = (id) => {
+    setConfirmModal({
+      title: '¿Eliminar este cliente?',
+      description: 'El cliente será eliminado del directorio de facturación.',
+      confirmText: 'Sí, eliminar',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, "clients", id));
+          fetchClients();
+          sileo.success({ title: 'Cliente eliminado.' });
+        } catch (e) { sileo.error({ title: 'Error al eliminar cliente.' }); }
+      },
+    });
   };
 
   // Filtrado
@@ -71,6 +82,11 @@ export default function ClientsList() {
 
   return (
     <div className="max-w-6xl mx-auto pb-20">
+      {/* Modal de confirmación */}
+      {confirmModal && (
+        <ConfirmModal {...confirmModal} onClose={() => setConfirmModal(null)} />
+      )}
+
       <div className="flex justify-between items-center mb-6">
         <div>
            <h1 className="text-2xl font-bold text-gray-800">Directorio de Clientes</h1>

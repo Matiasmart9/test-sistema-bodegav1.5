@@ -20,6 +20,8 @@ import {
   Tag,
   FileBarChart,
   ClipboardList,
+  UserCheck,
+  Truck,
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -46,6 +48,7 @@ const Sidebar = () => {
         { path: '/pos/gastos',            label: 'Historial Gastos',  icon: <TrendingDown size={16} /> },
         { path: '/pos/reporte-productos', label: 'Reporte Productos', icon: <FileBarChart size={16} /> },
         { path: '/pos/registro-manual',   label: 'Registro Manual',   icon: <ClipboardList size={16} /> },
+        { path: '/pos/reporte-cajeros',   label: 'Reporte Cajeros',   icon: <UserCheck size={16} /> },
       ],
     },
 
@@ -57,6 +60,7 @@ const Sidebar = () => {
       subItems: [
         { path: '/productos',           label: 'Lista de Productos' },
         { path: '/articulos/historial', label: 'Historial Inventario', icon: <History size={16} /> },
+        { path: '/articulos/entrada',   label: 'Entrada Mercadería',   icon: <Truck size={16} /> },
         { path: '/descuentos',          label: 'Descuentos',           icon: <Tag size={16} /> },
       ],
     },

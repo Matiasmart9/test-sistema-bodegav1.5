@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, getDocs, orderBy } from 'firebase/firestore';
+import { collection, query, getDocs, orderBy, where, getAggregateFromServer, count } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { 
   DollarSign, ShoppingBag, Users, TrendingUp, 
@@ -39,9 +39,14 @@ export default function DashboardHome() {
     const fetchBaseData = async () => {
       setLoading(true);
       try {
-        // A. VENTAS
-        const salesRef = collection(db, "sales");
-        const salesSnap = await getDocs(query(salesRef, orderBy("date", "desc")));
+        // A. VENTAS — solo los últimos 13 meses (cubre todos los filtros del dashboard)
+        const salesRef   = collection(db, 'sales');
+        const thirteenMonthsAgo = new Date();
+        thirteenMonthsAgo.setMonth(thirteenMonthsAgo.getMonth() - 13);
+
+        const salesSnap = await getDocs(
+            query(salesRef, where('date', '>=', thirteenMonthsAgo), orderBy('date', 'desc'))
+        );
         const salesData = salesSnap.docs.map(doc => ({
             id: doc.id,
             ...doc.data(),
@@ -49,9 +54,9 @@ export default function DashboardHome() {
         }));
         setAllSales(salesData);
 
-        // B. CLIENTES
-        const clientsSnap = await getDocs(collection(db, "clients"));
-        setAllClientsCount(clientsSnap.size);
+        // B. CLIENTES — conteo del servidor (sin descargar documentos)
+        const clientsAgg = await getAggregateFromServer(collection(db, 'clients'), { total: count() });
+        setAllClientsCount(clientsAgg.data().total || 0);
 
         // C. PRODUCTOS (STOCK BAJO)
         const productsSnap = await getDocs(collection(db, "products"));
@@ -237,7 +242,7 @@ export default function DashboardHome() {
       <div className="flex flex-col md:flex-row justify-between items-end mb-8 gap-4">
         <div>
             <h1 className="text-2xl font-bold text-gray-800">Panel de Control</h1>
-            <p className="text-sm text-gray-500">Resumen de rendimiento y alertas V1.6</p>
+            <p className="text-sm text-gray-500">Resumen de rendimiento y alertas V1.5</p>
         </div>
 
         {/* SELECTOR DE FILTRO */}

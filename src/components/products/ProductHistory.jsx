@@ -16,12 +16,20 @@ export default function ProductHistory({ productId, onStockUpdate }) {
   const [editingLog, setEditingLog] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
 
+  // Helper: fecha de hoy en formato yyyy-MM-dd para el input date
+  const todayStr = () => {
+    const now = new Date();
+    const off = now.getTimezoneOffset() * 60000;
+    return new Date(now.getTime() - off).toISOString().split('T')[0];
+  };
+
   const [formData, setFormData] = useState({
     variantIndex: -1,
     type: 'add',
     quantity: 0,
     reason: 'Compra a Proveedor',
-    note: ''
+    note: '',
+    date: todayStr(),
   });
 
   // Cargar Historial
@@ -83,14 +91,18 @@ export default function ProductHistory({ productId, onStockUpdate }) {
     if (log.change < 0) type = 'subtract';
 
     setEditingLog(log);
-    setFormData({ variantIndex: vIndex, type, quantity: qty, reason: log.reason, note: log.note || '' });
+    // Al editar, mostrar la fecha original del log como fecha editable
+    const logDate = log.date?.toDate ? log.date.toDate() : new Date(log.date || Date.now());
+    const logDateOff = logDate.getTime() - logDate.getTimezoneOffset() * 60000;
+    const logDateStr = new Date(logDateOff).toISOString().split('T')[0];
+    setFormData({ variantIndex: vIndex, type, quantity: qty, reason: log.reason, note: log.note || '', date: logDateStr });
     setShowModal(true);
   };
 
   // ABRIR MODAL PARA CREAR
   const handleOpenCreate = () => {
     setEditingLog(null);
-    setFormData({ variantIndex: -1, type: 'add', quantity: 0, reason: 'Compra a Proveedor', note: '' });
+    setFormData({ variantIndex: -1, type: 'add', quantity: 0, reason: 'Compra a Proveedor', note: '', date: todayStr() });
     setShowModal(true);
   };
 
@@ -146,17 +158,21 @@ export default function ProductHistory({ productId, onStockUpdate }) {
             transaction.update(productRef, { current_stock: newStock });
           }
 
+          // Construir la fecha seleccionada (medianoche hora local)
+          const [sy, sm, sd] = formData.date.split('-').map(Number);
+          const selectedDate = new Date(sy, sm - 1, sd, 12, 0, 0, 0); // mediodía para evitar desfase
+
           if (editingLog) {
             const logRef = doc(db, "inventory_logs", editingLog.id);
             transaction.update(logRef, {
-              date: new Date(), variantName, reason: formData.reason,
+              date: selectedDate, variantName, reason: formData.reason,
               note: formData.note, user: userData?.name || 'Usuario (Editado)',
               change, finalStock: newStock
             });
           } else {
             const newLogRef = doc(collection(db, "inventory_logs"));
             transaction.set(newLogRef, {
-              productId, date: new Date(), variantName, reason: formData.reason,
+              productId, date: selectedDate, variantName, reason: formData.reason,
               note: formData.note, user: userData?.name || 'Usuario',
               change, finalStock: newStock
             });
@@ -229,6 +245,23 @@ export default function ProductHistory({ productId, onStockUpdate }) {
             )}
 
             <div className="space-y-4">
+
+              {/* FECHA DEL MOVIMIENTO — editable para cargas retroactivas */}
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                  Fecha del Movimiento
+                </label>
+                <input
+                  type="date"
+                  className="w-full border rounded p-2 text-sm focus:outline-none focus:border-primary"
+                  value={formData.date}
+                  max={todayStr()}
+                  onChange={e => setFormData({ ...formData, date: e.target.value })}
+                />
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Podés cambiar la fecha si el movimiento ocurrió en un día anterior.
+                </p>
+              </div>
               {productData?.variants?.length > 0 && (
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Variante Afectada</label>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, getDocs } from "firebase/firestore";
+import { collection, query, orderBy, getDocs, doc, updateDoc } from "firebase/firestore";
 import { db } from '../../firebase/config';
-import { History, Search, ArrowLeft, ArrowRight, Calendar, User, FileText, Filter } from 'lucide-react';
+import { History, Search, ArrowLeft, ArrowRight, Calendar, User, FileText, Pencil, Check, X } from 'lucide-react';
 
 export default function InventoryHistoryGlobal() {
   const [allLogs, setAllLogs] = useState([]); // Todos los registros cargados
@@ -16,6 +16,11 @@ export default function InventoryHistoryGlobal() {
   const [searchTerm, setSearchTerm] = useState('');
   const [dateStart, setDateStart] = useState('');
   const [dateEnd, setDateEnd] = useState('');
+
+  // Edición de fecha inline
+  const [editingDateId,  setEditingDateId]  = useState(null);  // id del log que se está editando
+  const [editingDateVal, setEditingDateVal] = useState('');     // valor temporal del input
+  const [savingDateId,   setSavingDateId]   = useState(null);  // id del log guardando
 
   // 1. CARGAR DATOS
   useEffect(() => {
@@ -91,6 +96,42 @@ export default function InventoryHistoryGlobal() {
     }).format(date);
   };
 
+  // Convertir Date a string yyyy-MM-dd para input type="date"
+  const toInputDate = (date) => {
+    const off = date.getTimezoneOffset() * 60000;
+    return new Date(date.getTime() - off).toISOString().split('T')[0];
+  };
+
+  // Activar edición de fecha para un log
+  const handleStartEditDate = (log) => {
+    setEditingDateId(log.id);
+    setEditingDateVal(toInputDate(log.dateObj));
+  };
+
+  // Guardar nueva fecha en Firestore
+  const handleSaveDate = async (log) => {
+    if (!editingDateVal) return;
+    setSavingDateId(log.id);
+    try {
+      const [sy, sm, sd] = editingDateVal.split('-').map(Number);
+      // Mantener hora original, solo cambiar día
+      const orig = log.dateObj;
+      const newDate = new Date(sy, sm - 1, sd, orig.getHours(), orig.getMinutes(), 0, 0);
+
+      await updateDoc(doc(db, 'inventory_logs', log.id), { date: newDate });
+
+      // Actualizar estado local sin recargar todo
+      setAllLogs(prev => prev.map(l =>
+        l.id === log.id ? { ...l, dateObj: newDate } : l
+      ));
+      setEditingDateId(null);
+    } catch (e) {
+      console.error('Error actualizando fecha:', e);
+    } finally {
+      setSavingDateId(null);
+    }
+  };
+
   if (loading) return <div className="p-10 text-center text-gray-500">Cargando historial completo...</div>;
 
   return (
@@ -160,7 +201,47 @@ export default function InventoryHistoryGlobal() {
                         currentItems.map((log) => (
                             <tr key={log.id} className="hover:bg-blue-50/30 transition-colors">
                                 <td className="px-6 py-4 whitespace-nowrap text-gray-600">
-                                    {formatDate(log.dateObj)}
+                                  {editingDateId === log.id ? (
+                                    // ── Modo edición ──────────────────────────
+                                    <div className="flex items-center gap-1">
+                                      <input
+                                        type="date"
+                                        value={editingDateVal}
+                                        onChange={e => setEditingDateVal(e.target.value)}
+                                        className="border border-blue-400 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+                                        autoFocus
+                                      />
+                                      <button
+                                        onClick={() => handleSaveDate(log)}
+                                        disabled={savingDateId === log.id}
+                                        className="p-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition-colors"
+                                        title="Guardar fecha"
+                                      >
+                                        {savingDateId === log.id
+                                          ? <span className="text-[10px] px-0.5">...</span>
+                                          : <Check size={13}/>}
+                                      </button>
+                                      <button
+                                        onClick={() => setEditingDateId(null)}
+                                        className="p-1 bg-gray-100 text-gray-500 rounded hover:bg-gray-200 transition-colors"
+                                        title="Cancelar"
+                                      >
+                                        <X size={13}/>
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    // ── Modo lectura ──────────────────────────
+                                    <div className="flex items-center gap-2 group/date">
+                                      <span>{formatDate(log.dateObj)}</span>
+                                      <button
+                                        onClick={() => handleStartEditDate(log)}
+                                        className="opacity-0 group-hover/date:opacity-100 p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-all"
+                                        title="Editar fecha"
+                                      >
+                                        <Pencil size={12}/>
+                                      </button>
+                                    </div>
+                                  )}
                                 </td>
                                 <td className="px-6 py-4 font-bold text-gray-800">
                                     {log.variantName}

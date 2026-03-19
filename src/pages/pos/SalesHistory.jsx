@@ -264,35 +264,138 @@ export default function SalesHistory() {
   // EXCEL
   // ───────────────────────────────────────────────────────────────────────────
   const handleExportExcel = () => {
-    const rows = filteredHistory.map(item => {
+    const wb = XLSX.utils.book_new();
+
+    // ── HOJA 1: REPORTE (ventas + gastos con Ganancia Bruta) ─────────────────
+    const reportRows = filteredHistory.map(item => {
       if (item.type === 'sale') {
+        const isCanceled = item.status === 'canceled';
+        const subtotal   = item.subTotal || item.total || 0;
+        const descuento  = item.discountTotal || 0;
+        const totalNeto  = isCanceled ? 0 : (item.total || 0);
+
+        // Costo total de todos los ítems del ticket
+        const costoMerc = isCanceled ? 0 :
+          (item.items || []).reduce((acc, i) =>
+            acc + (parseFloat(i.cost || 0) * parseFloat(i.quantity || 0)), 0);
+
+        const gananciaBruta = isCanceled ? 0 : totalNeto - costoMerc;
+
         return {
-          Tipo:           'VENTA',
-          Ref:            item.ticketId,
-          Fecha:          item.date.toLocaleDateString() + ' ' + item.date.toLocaleTimeString(),
-          Usuario:        item.userName,
-          Detalle:        item.appliedDiscounts?.length > 0 ? 'Con Descuentos' : 'Normal',
-          Subtotal:       item.subTotal || item.total,
-          Descuento:      item.discountTotal || 0,
-          'Total Neto':   item.status === 'canceled' ? 0 : item.total,
-          Estado:         item.status === 'canceled' ? 'ANULADO' : 'OK',
+          'Tipo':              'VENTA',
+          'Ticket':            item.ticketId,
+          'Fecha':             item.date.toLocaleDateString('es-PY'),
+          'Hora':              item.date.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' }),
+          'Cajero':            item.userName || '',
+          'Cliente':           item.client?.name || 'SIN NOMBRE',
+          'Método Pago':       item.paymentMethod === 'cash' ? 'Efectivo'
+                             : item.paymentMethod === 'qr'   ? 'QR'
+                             : item.paymentMethod === 'card' ? 'Tarjeta'
+                             : item.paymentMethod === 'transfer' ? 'Transferencia'
+                             : item.paymentMethod || '-',
+          'Subtotal':          subtotal,
+          'Descuento':         descuento,
+          'Total + IVA':       totalNeto,
+          'Costo Mercadería':  costoMerc,
+          'Ganancia Bruta':    gananciaBruta,
+          'Estado':            isCanceled ? 'ANULADO' : 'OK',
         };
       }
+      // Gastos
       return {
-        Tipo:           'GASTO',
-        Ref:            '-',
-        Fecha:          item.date.toLocaleDateString() + ' ' + item.date.toLocaleTimeString(),
-        Usuario:        item.user,
-        Detalle:        item.reason,
-        Subtotal:       0,
-        Descuento:      0,
-        'Total Neto':   item.status === 'canceled' ? 0 : item.amount * -1,
-        Estado:         item.status === 'canceled' ? 'ANULADO' : 'OK',
+        'Tipo':              'GASTO',
+        'Ticket':            '-',
+        'Fecha':             item.date.toLocaleDateString('es-PY'),
+        'Hora':              item.date.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' }),
+        'Cajero':            item.user || '',
+        'Cliente':           '-',
+        'Método Pago':       '-',
+        'Subtotal':          0,
+        'Descuento':         0,
+        'Total Neto':        item.status === 'canceled' ? 0 : (item.amount || 0) * -1,
+        'Costo Mercadería':  0,
+        'Ganancia Bruta':    0,
+        'Estado':            item.status === 'canceled' ? 'ANULADO' : 'OK',
       };
     });
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Reporte');
-    XLSX.writeFile(wb, `Reporte_Bodega_${dateRange.start}.xlsx`);
+
+    const wsReporte = XLSX.utils.json_to_sheet(reportRows);
+
+    // Ancho de columnas para Reporte
+    wsReporte['!cols'] = [
+      { wch: 8 },  // Tipo
+      { wch: 12 }, // Ticket
+      { wch: 12 }, // Fecha
+      { wch: 7 },  // Hora
+      { wch: 14 }, // Cajero
+      { wch: 20 }, // Cliente
+      { wch: 14 }, // Método Pago
+      { wch: 12 }, // Subtotal
+      { wch: 11 }, // Descuento
+      { wch: 12 }, // Total Neto
+      { wch: 16 }, // Costo Mercadería
+      { wch: 14 }, // Ganancia Bruta
+      { wch: 9 },  // Estado
+    ];
+
+    XLSX.utils.book_append_sheet(wb, wsReporte, 'Reporte');
+
+    // ── HOJA 2: TOTAL PRODUCTOS ───────────────────────────────────────────────
+    // Agrupa todas las ventas activas del período por nombre de producto
+    const productMap = {};
+
+    filteredHistory.forEach(item => {
+      if (item.type !== 'sale' || item.status === 'canceled') return;
+      (item.items || []).forEach(prod => {
+        const nombre = prod.name || 'Sin nombre';
+        if (!productMap[nombre]) {
+          productMap[nombre] = {
+            'Producto':           nombre,
+            'Cantidad Vendida':   0,
+            'Ingresos Brutos':    0,
+            'Costo Total':        0,
+            'Ganancia Bruta':     0,
+          };
+        }
+        const qty      = parseFloat(prod.quantity || 0);
+        const precio   = parseFloat(prod.price    || 0);
+        const costo    = parseFloat(prod.cost     || 0);
+        const ingreso  = precio * qty;
+        const costoTot = costo  * qty;
+
+        productMap[nombre]['Cantidad Vendida'] += qty;
+        productMap[nombre]['Ingresos Brutos']  += ingreso;
+        productMap[nombre]['Costo Total']      += costoTot;
+        productMap[nombre]['Ganancia Bruta']   += ingreso - costoTot;
+      });
+    });
+
+    // Ordenar por mayor cantidad vendida
+    const productRows = Object.values(productMap)
+      .sort((a, b) => b['Cantidad Vendida'] - a['Cantidad Vendida']);
+
+    // Fila de totales al final
+    const totales = {
+      'Producto':           'TOTAL',
+      'Cantidad Vendida':   productRows.reduce((a, r) => a + r['Cantidad Vendida'], 0),
+      'Ingresos Brutos':    productRows.reduce((a, r) => a + r['Ingresos Brutos'], 0),
+      'Costo Total':        productRows.reduce((a, r) => a + r['Costo Total'], 0),
+      'Ganancia Bruta':     productRows.reduce((a, r) => a + r['Ganancia Bruta'], 0),
+    };
+
+    const wsProductos = XLSX.utils.json_to_sheet([...productRows, totales]);
+
+    wsProductos['!cols'] = [
+      { wch: 30 }, // Producto
+      { wch: 16 }, // Cantidad Vendida
+      { wch: 16 }, // Ingresos Brutos
+      { wch: 14 }, // Costo Total
+      { wch: 14 }, // Ganancia Bruta
+    ];
+
+    XLSX.utils.book_append_sheet(wb, wsProductos, 'Total Productos');
+
+    XLSX.writeFile(wb, `Reporte_Bodega_${dateRange.start}_${dateRange.end}.xlsx`);
   };
 
   // ───────────────────────────────────────────────────────────────────────────

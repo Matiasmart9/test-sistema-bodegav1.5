@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, orderBy, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { TrendingUp, TrendingDown, Minus, DollarSign, Loader2, History } from 'lucide-react';
 
@@ -16,11 +16,19 @@ export default function ProductPriceHistory({ productId }) {
         const snap = await getDocs(
           query(
             collection(db, 'price_logs'),
-            where('productId', '==', productId),
-            orderBy('date', 'desc')
+            where('productId', '==', productId)
+            // orderBy removido — requería índice compuesto en Firestore
+            // se ordena en el cliente abajo
           )
         );
-        setLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const sorted = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => {
+            const da = a.date?.toDate ? a.date.toDate() : new Date(a.date || 0);
+            const db_ = b.date?.toDate ? b.date.toDate() : new Date(b.date || 0);
+            return db_ - da; // desc
+          });
+        setLogs(sorted);
       } catch (e) { console.error(e); }
       finally { setLoading(false); }
     };

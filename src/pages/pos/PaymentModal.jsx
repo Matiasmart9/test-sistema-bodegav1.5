@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { sileo } from 'sileo';
 import { X, Check, Search, UserPlus, User, Mail, Printer, AlertTriangle, MapPin, Hash } from 'lucide-react';
 import { collection, getDocs, addDoc, query, where } from 'firebase/firestore'; 
 import { db } from '../../firebase/config';
@@ -15,6 +14,7 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
   // ESTADOS CLIENTE
   const [clientMode, setClientMode] = useState('final'); 
   const [searchTerm, setSearchTerm] = useState('');
+  const [foundClients, setFoundClients] = useState([]);
   const [selectedClient, setSelectedClient] = useState(null);
   const [isCreatingClient, setIsCreatingClient] = useState(false);
   
@@ -25,30 +25,32 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
   const isValidPayment = paymentMethod === 'cash' ? (amountPaid === '' || numericReceived >= total) : true;
   const changeAmount = paymentMethod === 'cash' && numericReceived > total ? numericReceived - total : 0;
 
-  // ── Clientes: cargar UNA sola vez al montar, filtrar en memoria ───────────
-  const [allClients, setAllClients] = useState([]);
-
+  // BUSCAR CLIENTES
   useEffect(() => {
-    const loadClients = async () => {
-      try {
-        const snap = await getDocs(collection(db, 'clients'));
-        setAllClients(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      } catch (e) { console.error(e); }
+    const searchClients = async () => {
+        if (searchTerm.length < 2) {
+            setFoundClients([]);
+            return;
+        }
+        try {
+            const q = query(collection(db, "clients")); 
+            const snap = await getDocs(q);
+            const clients = snap.docs.map(doc => ({id: doc.id, ...doc.data()}));
+            
+            const filtered = clients.filter(c => 
+                c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                c.ruc.includes(searchTerm)
+            );
+            setFoundClients(filtered.slice(0, 5));
+        } catch (error) { console.error(error); }
     };
-    loadClients();
-  }, []);
-
-  // Filtrado en memoria (sin re-consultar Firestore)
-  const foundClients = searchTerm.length >= 2
-    ? allClients.filter(c =>
-        c.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        String(c.ruc || '').includes(searchTerm)
-      ).slice(0, 5)
-    : [];
+    const timer = setTimeout(() => { if(clientMode === 'search') searchClients(); }, 500);
+    return () => clearTimeout(timer);
+  }, [searchTerm, clientMode]);
 
   // GUARDAR NUEVO CLIENTE
   const handleSaveNewClient = async () => {
-      if(!newClientData.name || !newClientData.ruc) return sileo.warning({ title: 'Nombre y RUC son obligatorios.' });
+      if(!newClientData.name || !newClientData.ruc) return alert("Nombre y RUC obligatorios");
       setLoading(true);
       try {
           const docRef = await addDoc(collection(db, "clients"), newClientData);
@@ -56,7 +58,7 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
           setSelectedClient(newClient);
           setClientMode('search'); 
           setIsCreatingClient(false);
-      } catch (error) { console.error(error); sileo.error({ title: 'Error al guardar cliente.' }); }
+      } catch (error) { console.error(error); alert("Error al guardar cliente"); } 
       finally { setLoading(false); }
   };
 
@@ -77,16 +79,58 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
           setTicketData(result);
           setStep(2); 
       } else {
-          sileo.error({ title: 'Error al procesar la venta.', description: 'Intente nuevamente.' });
+          alert("Error al procesar la venta");
       }
       setLoading(false);
   };
 
+  // ── Impresión independiente por copia ────────────────────────────────────
+  // Abre una ventana nueva con el HTML del ticket ya renderizado + Tailwind CDN
+  // y dispara window.print() — cada ventana = un trabajo de impresión = un corte Epson
+  const printTicket = (footerLabel) => {
+    const ticketEl = document.getElementById('ticket-data');
+    if (!ticketEl) return;
+
+    const win = window.open('', '_blank', 'width=350,height=650,toolbar=no,menubar=no,scrollbars=no');
+    if (!win) { alert('El navegador bloqueó la ventana emergente. Habilitá los pop-ups para este sitio.'); return; }
+
+    win.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8"/>
+  <script src="https://cdn.tailwindcss.com"><\/script>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:'Courier New',monospace; width:80mm; background:white; }
+    @page { size:80mm auto; margin:0; }
+    .footer-label {
+      text-align:center; font-weight:900; font-size:12px;
+      text-transform:uppercase; letter-spacing:2px;
+      border-top:1px dashed #555; padding-top:6px;
+      margin:8px 8px 10px; font-family:'Courier New',monospace;
+    }
+  </style>
+</head>
+<body>
+  ${ticketEl.innerHTML}
+  <div class="footer-label">${footerLabel}</div>
+</body>
+</html>`);
+    win.document.close();
+
+    // Tailwind CDN necesita ~1s para procesar las clases antes de imprimir
+    setTimeout(() => {
+      win.focus();
+      win.print();
+      setTimeout(() => win.close(), 500);
+    }, 1000);
+  };
+
   return (
     <>
-      {/* --- ÁREA DE IMPRESIÓN (FUERA DEL MODAL PARA EVITAR ERRORES) --- */}
+      {/* --- DATOS DEL TICKET para impresión (oculto en pantalla) --- */}
       {step === 2 && ticketData && (
-        <div id="printable-ticket" className="hidden print:block">
+        <div id="ticket-data" style={{position:'absolute',left:'-9999px',top:0,width:'80mm',background:'white'}}>
             <TicketInvoice 
                 cart={ticketData.items} 
                 total={ticketData.total} 
@@ -100,6 +144,7 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
                 subTotal={ticketData.subTotal} 
                 discountTotal={ticketData.discountTotal}
                 appliedDiscounts={ticketData.appliedDiscounts}
+                copyLabel="__HIDE_FOOTER__"
             />
         </div>
       )}
@@ -344,12 +389,19 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
                           </div>
                       </div>
 
-                      <div className="p-4 bg-white border-t border-gray-200 flex gap-3 shadow-up">
-                          <button onClick={() => window.print()} className="flex-1 bg-gray-900 hover:bg-black text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-sm">
-                              <Printer size={18} /> IMPRIMIR
+                      <div className="p-4 bg-white border-t border-gray-200 flex gap-2 shadow-up">
+                          <button 
+                            onClick={() => printTicket('ORIGINAL — CLIENTE')} 
+                            className="flex-1 bg-gray-900 hover:bg-black text-white py-3 rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs">
+                              <Printer size={16} /> ORIG.
                           </button>
-                          <button onClick={() => onFinalize(cart)} className="px-6 py-3 bg-green-100 text-green-700 hover:bg-green-200 rounded-xl font-bold flex items-center justify-center gap-2 text-sm whitespace-nowrap">
-                              <Check size={18} /> NUEVA VENTA
+                          <button 
+                            onClick={() => printTicket('COPIA — TICKET')} 
+                            className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs">
+                              <Printer size={16} /> COPIA
+                          </button>
+                          <button onClick={() => onFinalize(ticketData?.items)} className="flex-1 bg-green-100 text-green-700 hover:bg-green-200 rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs whitespace-nowrap">
+                              <Check size={16} /> NUEVA VENTA
                           </button>
                       </div>
                   </div>

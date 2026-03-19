@@ -8,7 +8,7 @@ import { db } from '../../firebase/config';
 import {
   Search, ShoppingCart, Trash2, Plus, Minus, CreditCard, LogOut,
   Clock, DollarSign, Barcode, TrendingDown, Printer, X, Tag,
-  Store, MoreVertical, Ban, RefreshCcw, AlertCircle, Loader2
+  Store, MoreVertical, Ban, RefreshCcw, AlertCircle, Loader2, PrinterCheck
 } from 'lucide-react';
 import PaymentModal from './PaymentModal';
 import ShiftCloseTicket from './ShiftCloseTicket';
@@ -89,6 +89,9 @@ export default function PosTerminal() {
   const [showOptionsMenu,   setShowOptionsMenu]   = useState(false);
   const [showVoidModal,     setShowVoidModal]     = useState(false);
   const [recentSales,       setRecentSales]       = useState([]);
+  const [showReprintModal,  setShowReprintModal]  = useState(false);
+  const [reprintSales,      setReprintSales]      = useState([]);
+  const [reprintSearch,     setReprintSearch]     = useState('');
   const [voidSearch,        setVoidSearch]        = useState('');
 
   // Datos para el gasto y cierre
@@ -179,6 +182,109 @@ export default function PosTerminal() {
       console.error('Error fetching sales:', error);
       sileo.error({ title: 'Error al cargar ventas recientes: ' + error.message });
     }
+  };
+
+  // ─── Reimprimir ticket ───────────────────────────────────────────────────
+  const fetchReprintSales = async () => {
+    if (!currentShift) return;
+    try {
+      const q    = query(collection(db, 'sales'), where('shiftId', '==', currentShift.id));
+      const snap = await getDocs(q);
+      const sales = snap.docs
+        .map(d => {
+          const data = d.data();
+          return { id: d.id, ...data, dateObj: data.date?.toDate ? data.date.toDate() : new Date(data.date) };
+        })
+        .filter(s => s.status !== 'canceled')
+        .sort((a, b) => b.dateObj - a.dateObj)
+        .slice(0, 6);  // Últimas 6 ventas
+
+      setReprintSales(sales);
+      setReprintSearch('');
+      setShowReprintModal(true);
+      setShowOptionsMenu(false);
+    } catch (error) {
+      sileo.error({ title: 'Error al cargar ventas: ' + error.message });
+    }
+  };
+
+  const handleReprint = (sale, footerLabel) => {
+    // Reconstruir el objeto date si viene como Timestamp de Firestore
+    const saleDate = sale.dateObj instanceof Date ? sale.dateObj
+                   : sale.date?.toDate ? sale.date.toDate()
+                   : new Date(sale.date);
+
+    // Renderizar el ticket en un div oculto temporalmente
+    const container = document.createElement('div');
+    container.style.cssText = 'position:fixed;left:-9999px;top:0;width:80mm;background:white;';
+    document.body.appendChild(container);
+
+    // Importar ReactDOM dinámicamente para renderizar el TicketInvoice
+    import('react-dom/client').then(({ createRoot }) => {
+      import('./TicketInvoice').then(({ default: TicketInvoice }) => {
+        const root = createRoot(container);
+        root.render(
+          React.createElement(TicketInvoice, {
+            cart:              sale.items || [],
+            total:             sale.total,
+            amountPaid:        sale.amountReceived || sale.total,
+            change:            sale.change || 0,
+            paymentMethod:     sale.paymentMethod,
+            ticketId:          sale.ticketId,
+            date:              saleDate,
+            client:            sale.client,
+            cashierName:       sale.userName,
+            subTotal:          sale.subTotal,
+            discountTotal:     sale.discountTotal,
+            appliedDiscounts:  sale.appliedDiscounts,
+            copyLabel:         '__HIDE_FOOTER__',
+          })
+        );
+
+        // Esperar render (~800ms) luego abrir ventana de impresión
+        setTimeout(() => {
+          const win = window.open('', '_blank', 'width=350,height=650,toolbar=no,menubar=no,scrollbars=no');
+          if (!win) {
+            sileo.warning({ title: 'Habilitá los pop-ups para este sitio en Chrome.' });
+            root.unmount();
+            document.body.removeChild(container);
+            return;
+          }
+
+          win.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8"/>
+  <script src="https://cdn.tailwindcss.com"><\/script>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:'Courier New',monospace; width:80mm; background:white; }
+    @page { size:80mm auto; margin:0; }
+    .footer-label {
+      text-align:center; font-weight:900; font-size:12px;
+      text-transform:uppercase; letter-spacing:2px;
+      border-top:1px dashed #555; padding-top:6px;
+      margin:8px 8px 10px; font-family:'Courier New',monospace;
+    }
+  </style>
+</head>
+<body>
+  ${container.innerHTML}
+  <div class="footer-label">${footerLabel}</div>
+</body>
+</html>`);
+          win.document.close();
+          setTimeout(() => {
+            win.focus();
+            win.print();
+            setTimeout(() => win.close(), 500);
+          }, 1000);
+
+          root.unmount();
+          document.body.removeChild(container);
+        }, 800);
+      });
+    });
   };
 
   const handleVoidSale = async (sale) => {
@@ -746,6 +852,84 @@ export default function PosTerminal() {
         </div>
       )}
 
+      {/* ── Modal Reimprimir Ticket ─────────────────────────────────────── */}
+      {showReprintModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-0 overflow-hidden flex flex-col max-h-[80vh] animate-fadeIn">
+
+            <div className="p-4 bg-blue-50 border-b border-blue-100 flex justify-between items-center">
+              <h3 className="text-lg font-bold text-blue-700 flex items-center gap-2">
+                <PrinterCheck size={20}/> Reimprimir Ticket
+              </h3>
+              <button onClick={() => setShowReprintModal(false)} className="p-1 hover:bg-blue-100 rounded-full">
+                <X size={20} className="text-blue-400"/>
+              </button>
+            </div>
+
+            <div className="p-4 border-b border-gray-100 bg-white">
+              <div className="relative">
+                <Search className="absolute left-3 top-3 text-gray-400" size={16}/>
+                <input
+                  type="text"
+                  placeholder="Buscar por Nro Ticket..."
+                  value={reprintSearch}
+                  onChange={e => setReprintSearch(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm
+                             bg-gray-50 focus:bg-white focus:outline-none focus:border-blue-300 transition-all"
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
+              {reprintSales
+                .filter(s => s.ticketId.toLowerCase().includes(reprintSearch.toLowerCase()))
+                .length === 0 ? (
+                <div className="text-center text-gray-400 py-8 text-sm flex flex-col items-center">
+                  <PrinterCheck size={32} className="mb-2 opacity-20"/>
+                  No se encontraron ventas.
+                </div>
+              ) : (
+                reprintSales
+                  .filter(s => s.ticketId.toLowerCase().includes(reprintSearch.toLowerCase()))
+                  .map(sale => (
+                    <div key={sale.id} className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <p className="font-bold text-gray-800 text-sm">{sale.ticketId}</p>
+                          <p className="text-xs text-gray-500 flex items-center gap-1">
+                            <Clock size={10}/>
+                            {sale.dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {' • '}{sale.items?.length || 0} items
+                            {' • '}₲ {sale.total?.toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleReprint(sale, '★ ORIGINAL — CLIENTE ★')}
+                          className="flex-1 flex items-center justify-center gap-1.5 bg-gray-900 hover:bg-black text-white text-xs font-bold py-2 rounded-lg transition-colors"
+                        >
+                          <Printer size={13}/> Original
+                        </button>
+                        <button
+                          onClick={() => handleReprint(sale, '✦ COPIA — TIENDA ✦')}
+                          className="flex-1 flex items-center justify-center gap-1.5 bg-gray-500 hover:bg-gray-600 text-white text-xs font-bold py-2 rounded-lg transition-colors"
+                        >
+                          <Printer size={13}/> Copia
+                        </button>
+                      </div>
+                    </div>
+                  ))
+              )}
+            </div>
+
+            <div className="p-3 bg-blue-50/50 text-[10px] text-blue-400 text-center font-medium border-t border-blue-100">
+              Últimas 6 ventas del turno actual — buscá por número de ticket
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal cierre de turno */}
       {showCloseShiftModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -860,6 +1044,13 @@ export default function PosTerminal() {
                     >
                       <div className="bg-slate-100 p-1.5 rounded-lg"><Ban size={16}/></div>
                       Anular Venta
+                    </button>
+                    <button
+                      onClick={fetchReprintSales}
+                      className="w-full text-left px-4 py-3.5 hover:bg-blue-50 text-blue-600 font-bold text-sm flex items-center gap-3 border-t border-gray-100 transition-colors"
+                    >
+                      <div className="bg-blue-100 p-1.5 rounded-lg"><PrinterCheck size={16}/></div>
+                      Reimprimir Ticket
                     </button>
                   </div>
                 )}

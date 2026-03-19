@@ -98,12 +98,12 @@ export default function PosLogin() {
           <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
             <Lock size={32} />
           </div>
-          <h1 className="text-2xl font-bold">Punto de Venta V1.7</h1>
+          <h1 className="text-2xl font-bold">Punto de Venta V1.8</h1>
           <p className="opacity-80 mt-1 text-sm">Acceso Seguro</p>
         </div>
 
         <div className="p-8">
-          <form onSubmit={handleLogin}>
+          <form onSubmit={handleLogin}> 
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Contraseña de Empleado

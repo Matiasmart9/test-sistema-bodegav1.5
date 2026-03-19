@@ -30,6 +30,7 @@ export default function ShiftCloseTicket({ shiftData, salesTotal, expensesTotal 
 
         let cash = 0, qr = 0, card = 0, transfer = 0;
         let canceledCount = 0, canceledTotal = 0, discountTotal = 0, ticketCount = 0;
+        let totalCost = 0; // Costo de mercadería vendida (COGS)
 
         salesSnap.docs.forEach(d => {
           const s = d.data();
@@ -41,9 +42,14 @@ export default function ShiftCloseTicket({ shiftData, salesTotal, expensesTotal 
           else if (s.paymentMethod === 'card')     card     += net;
           else if (s.paymentMethod === 'transfer') transfer += net;
           else                                     cash     += net;
+
+          // Sumar costo de cada ítem vendido
+          (s.items || []).forEach(item => {
+            totalCost += parseFloat(item.cost || 0) * parseFloat(item.quantity || 0);
+          });
         });
 
-        setShiftDetail({ ticketCount, canceledCount, canceledTotal, discountTotal, cash, qr, card, transfer });
+        setShiftDetail({ ticketCount, canceledCount, canceledTotal, discountTotal, cash, qr, card, transfer, totalCost });
       } catch (e) { console.error(e); }
       finally { setLoading(false); }
     };
@@ -60,6 +66,8 @@ export default function ShiftCloseTicket({ shiftData, salesTotal, expensesTotal 
   const digitalTotal  = (shiftDetail?.qr || 0) + (shiftDetail?.card || 0) + (shiftDetail?.transfer || 0);
   const cashToDeliver = startingCash + (shiftDetail?.cash || 0) - expensesNet;
   const resultado     = salesNet - expensesNet;
+  const totalCost     = shiftDetail?.totalCost || 0;
+  const gananciaNeta  = salesNet - totalCost - expensesNet; // Ventas − Costo − Gastos
 
   const fmt = (d) => d.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' });
 
@@ -130,6 +138,9 @@ export default function ShiftCloseTicket({ shiftData, salesTotal, expensesTotal 
 
       <div className="space-y-1">
         <Row label="VENTAS NETAS:"  value={g(salesNet)}          bold color="text-green-700" />
+        {totalCost > 0 && (
+          <Row label="Costo mercadería:" value={`- ${g(totalCost)}`} color="text-gray-500" />
+        )}
         {expensesNet > 0 && (
           <Row label="GASTOS:"      value={`- ${g(expensesNet)}`}     color="text-red-500" />
         )}
@@ -137,6 +148,12 @@ export default function ShiftCloseTicket({ shiftData, salesTotal, expensesTotal 
           <span>RESULTADO TURNO:</span>
           <span className={resultado >= 0 ? 'text-green-700' : 'text-red-600'}>{g(resultado)}</span>
         </div>
+        {totalCost > 0 && (
+          <div className="flex justify-between font-black text-sm pt-1 border-t-2 border-dashed border-gray-500 mt-1">
+            <span>GANANCIA NETA:</span>
+            <span className={gananciaNeta >= 0 ? 'text-emerald-600' : 'text-red-600'}>{g(gananciaNeta)}</span>
+          </div>
+        )}
       </div>
 
       <div className="mt-8 text-center">

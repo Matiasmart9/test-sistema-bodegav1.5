@@ -26,6 +26,14 @@ export default function StockEntry() {
   const [invoiceNo, setInvoiceNo] = useState('');
   const [notes,     setNotes]     = useState('');
 
+  // Fecha de la entrada — hoy por defecto, editable para cargas retroactivas
+  const todayStr = () => {
+    const now = new Date();
+    const off = now.getTimezoneOffset() * 60000;
+    return new Date(now.getTime() - off).toISOString().split('T')[0];
+  };
+  const [entryDateStr, setEntryDateStr] = useState(todayStr);
+
   // ── Carrito de entrada ──────────────────────────────────────────────────────
   const [entryCart, setEntryCart] = useState([]); // [{ ...product, qtyIn, newCost }]
 
@@ -109,7 +117,9 @@ export default function StockEntry() {
 
     setSaving(true);
     try {
-      const entryDate = new Date();
+      // Construir la fecha seleccionada (mediodía para evitar desfase de zona horaria)
+      const [sy, sm, sd] = entryDateStr.split('-').map(Number);
+      const entryDate = new Date(sy, sm - 1, sd, 12, 0, 0, 0);
       const batch     = writeBatch(db);
 
       // 1. Actualizar stock de cada producto
@@ -196,6 +206,7 @@ export default function StockEntry() {
       setSupplier('');
       setInvoiceNo('');
       setNotes('');
+      setEntryDateStr(todayStr());
       await fetchProducts();
 
     } catch (e) {
@@ -332,6 +343,21 @@ export default function StockEntry() {
               <Truck size={16} className="text-blue-500"/> Datos de la Entrada
             </h3>
             <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                  Fecha de Entrada
+                </label>
+                <input
+                  type="date"
+                  value={entryDateStr}
+                  max={todayStr()}
+                  onChange={e => setEntryDateStr(e.target.value)}
+                  className="w-full border-2 rounded-lg p-2.5 text-sm focus:outline-none focus:border-blue-400 border-gray-200"
+                />
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Modificá si la mercadería llegó en una fecha anterior.
+                </p>
+              </div>
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Proveedor *</label>
                 <input type="text" value={supplier} onChange={e => setSupplier(e.target.value)}

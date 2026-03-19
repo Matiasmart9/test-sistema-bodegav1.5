@@ -95,122 +95,201 @@ export default function Login() {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row min-h-screen font-sans text-slate-900 bg-white">
-        
-        <style>{`
-            .subtle-pattern { background-color: #22C55E; }
-            .input-underline { position: relative; }
-            .input-underline::after {
-                content: '';
-                position: absolute;
-                bottom: -1px;
-                left: 0;
-                width: 0;
-                height: 2px;
-                background-color: #22C55E;
-                transition: width 0.3s ease;
-            }
-            .input-underline:focus-within::after { width: 100%; }
-        `}</style>
+    <div className="flex flex-col lg:flex-row min-h-screen font-sans bg-white overflow-hidden">
 
-        {/* COLUMNA IZQUIERDA (DESKTOP) */}
-        <div className="hidden lg:flex w-1/2 subtle-pattern relative overflow-hidden flex-col justify-center items-center p-12">
-            <div className="relative z-10 text-center">
-                <div className="mb-8 flex justify-center">
-                    <div className="bg-white/20 backdrop-blur-md p-8 rounded-[2rem] shadow-2xl">
-                        {/* CAMBIO 2: Ícono de Cerveza Grande */}
-                        <Beer size={80} className="text-white" strokeWidth={1.5} />
-                    </div>
-                </div>
-                <h1 className="text-7xl font-extrabold text-white tracking-tight leading-none drop-shadow-sm">
-                    Bodega<br/>El Grifo
-                </h1>
-                <p className="text-green-100 text-lg mt-6 font-medium">Gestión inteligente para tu negocio V1.7</p>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&display=swap');
+
+        * { font-family: 'Sora', sans-serif; }
+
+        .login-gradient {
+          background: linear-gradient(135deg, #22c55e 0%, #16a34a 35%, #0d9488 100%);
+        }
+
+        .glass-mug {
+          background: rgba(255,255,255,0.18);
+          backdrop-filter: blur(16px);
+          -webkit-backdrop-filter: blur(16px);
+          border: 1.5px solid rgba(255,255,255,0.35);
+          box-shadow: 0 8px 32px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.4);
+        }
+
+        .input-field {
+          border: 1.5px solid #e2e8f0;
+          border-radius: 12px;
+          transition: border-color 0.2s, box-shadow 0.2s;
+          background: #f8fafc;
+        }
+        .input-field:focus-within {
+          border-color: #22c55e;
+          box-shadow: 0 0 0 3px rgba(34,197,94,0.12);
+          background: #fff;
+        }
+
+        .btn-ingresar {
+          background: linear-gradient(135deg, #22c55e 0%, #16a34a 60%, #0d9488 100%);
+          box-shadow: 0 8px 24px rgba(34,197,94,0.4), 0 2px 8px rgba(34,197,94,0.2);
+          transition: transform 0.15s, box-shadow 0.15s;
+        }
+        .btn-ingresar:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 12px 32px rgba(34,197,94,0.5), 0 4px 12px rgba(34,197,94,0.25);
+        }
+        .btn-ingresar:active:not(:disabled) { transform: translateY(0); }
+
+        .orb1 {
+          position: absolute; width: 380px; height: 380px;
+          border-radius: 50%; background: rgba(255,255,255,0.08);
+          bottom: -120px; left: -120px; pointer-events: none;
+        }
+        .orb2 {
+          position: absolute; width: 260px; height: 260px;
+          border-radius: 50%; background: rgba(255,255,255,0.06);
+          top: -80px; right: -80px; pointer-events: none;
+        }
+        .orb3 {
+          position: absolute; width: 140px; height: 140px;
+          border-radius: 50%; background: rgba(255,255,255,0.08);
+          top: 40%; right: 10%; pointer-events: none;
+        }
+
+        .custom-checkbox { display: none; }
+        .custom-checkbox + label .box {
+          width: 18px; height: 18px;
+          border: 2px solid #cbd5e1; border-radius: 5px;
+          background: white; transition: all 0.2s;
+          display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+        .custom-checkbox:checked + label .box {
+          background: #22c55e; border-color: #22c55e;
+        }
+      `}</style>
+
+      {/* ── PANEL IZQUIERDO ──────────────────────────────────────────── */}
+      <div className="hidden lg:flex w-1/2 login-gradient relative overflow-hidden flex-col justify-center items-center p-12">
+        <div className="orb1"/>
+        <div className="orb2"/>
+        <div className="orb3"/>
+
+        <div className="relative z-10 text-center select-none">
+          {/* Ícono cerveza glassmorphism */}
+          <div className="flex justify-center mb-8">
+            <div className="glass-mug p-7 rounded-[2.5rem]">
+              <Beer size={88} className="text-white drop-shadow-lg" strokeWidth={1.4}/>
             </div>
-            
-            <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-green-400 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
-            <div className="absolute -top-24 -right-24 w-96 h-96 bg-green-300 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
+          </div>
+
+          <h1 className="text-6xl font-extrabold text-white leading-none tracking-tight drop-shadow-sm">
+            Bodega<br/>
+            <span className="text-white/90">El Grifo</span>
+          </h1>
+          <p className="text-green-100/80 text-base mt-5 font-medium tracking-wide">
+            Gestión inteligente para tu negocio V1.8
+          </p>
+        </div>
+      </div>
+
+      {/* ── PANEL DERECHO — FORMULARIO ──────────────────────────────── */}
+      <div className="w-full lg:w-1/2 flex flex-col justify-center items-center px-6 sm:px-12 md:px-20 xl:px-28 py-16 bg-white relative">
+
+        {/* Header móvil */}
+        <div className="lg:hidden flex flex-col items-center mb-10">
+          <div className="login-gradient p-4 rounded-2xl mb-4 shadow-lg shadow-green-200">
+            <Beer size={40} className="text-white"/>
+          </div>
+          <h2 className="text-2xl font-bold text-slate-800">Bodega El Grifo</h2>
         </div>
 
-        {/* COLUMNA DERECHA - FORMULARIO */}
-        <div className="w-full lg:w-1/2 flex flex-col justify-center items-center p-6 sm:p-12 md:p-24 bg-white relative">
-            <div className="w-full max-w-md">
-                
-                {/* HEADER MÓVIL */}
-                <div className="lg:hidden flex flex-col items-center mb-12">
-                    <div className="bg-[#22C55E] p-4 rounded-2xl mb-4 shadow-lg shadow-green-200">
-                        {/* CAMBIO 3: Ícono de Cerveza Pequeño */}
-                        <Beer size={40} className="text-white" />
-                    </div>
-                    <h2 className="text-3xl font-bold text-slate-800">Bodega El Grifo</h2>
-                </div>
+        <div className="w-full max-w-md">
 
-                <div className="mb-10 text-center lg:text-left">
-                    <h3 className="text-4xl font-bold mb-2 text-transparent bg-clip-text bg-gradient-to-r from-green-600 to-green-400">
-                        Bienvenido
-                    </h3>
-                    <p className="text-slate-400 text-lg">Inicia sesión para continuar.</p>
-                </div>
+          {/* Título */}
+          <div className="mb-10">
+            <h3 className="text-5xl font-extrabold text-slate-900 mb-2 tracking-tight">
+              Bienvenido
+            </h3>
+            <p className="text-slate-400 text-base font-medium">
+              Inicia sesión para continuar.
+            </p>
+          </div>
 
-                <form onSubmit={handleLogin} className="space-y-10">
-                    
-                    <div className="input-underline border-b border-slate-200 pb-2">
-                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Email</label>
-                        <div className="flex items-center">
-                            <Mail className="text-slate-400 mr-3" size={20} />
-                            <input 
-                                type="email" 
-                                className="w-full bg-transparent border-none p-0 text-lg placeholder-slate-300 focus:ring-0 text-slate-900 focus:outline-none"
-                                placeholder="tu@email.com"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                            />
-                        </div>
-                    </div>
+          <form onSubmit={handleLogin} className="space-y-5">
 
-                    <div className="input-underline border-b border-slate-200 pb-2">
-                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Contraseña</label>
-                        <div className="flex items-center">
-                            <Lock className="text-slate-400 mr-3" size={20} />
-                            <input 
-                                type="password" 
-                                className="w-full bg-transparent border-none p-0 text-lg placeholder-slate-300 focus:ring-0 text-slate-900 font-mono focus:outline-none"
-                                placeholder="••••••••"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                            />
-                        </div>
-                    </div>
-
-                    <div className="flex items-center">
-                        <label className="flex items-center cursor-pointer group">
-                            <div className="relative">
-                                <input type="checkbox" className="peer sr-only" />
-                                <div className="w-5 h-5 border-2 border-slate-300 rounded bg-white peer-checked:bg-[#22C55E] peer-checked:border-[#22C55E] transition-all"></div>
-                                <Check size={12} className="absolute top-1 left-1 text-white opacity-0 peer-checked:opacity-100 pointer-events-none" />
-                            </div>
-                            <span className="ml-2 text-sm text-slate-500 group-hover:text-slate-700 transition-colors">Recordarme</span>
-                        </label>
-                    </div>
-
-                    {error && (
-                        <div className="bg-red-50 text-red-500 p-4 rounded-xl text-sm flex items-center gap-3 animate-pulse border border-red-100">
-                            <AlertCircle size={20} /> {error}
-                        </div>
-                    )}
-
-                    <button 
-                        type="submit" 
-                        disabled={loading}
-                        className="w-full py-4 bg-[#22C55E] hover:bg-green-600 active:scale-[0.99] transition-all text-white font-bold rounded-xl shadow-xl shadow-green-500/30 flex items-center justify-center gap-3 group tracking-wide text-lg disabled:opacity-70 disabled:cursor-not-allowed"
-                    >
-                        {loading ? <Loader2 className="animate-spin"/> : 'INGRESAR'}
-                        {!loading && <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />}
-                    </button>
-
-                </form>
+            {/* EMAIL */}
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">
+                Email
+              </label>
+              <div className="input-field flex items-center px-4 py-3.5 gap-3">
+                <input
+                  type="email"
+                  className="w-full bg-transparent border-none p-0 text-base text-slate-800 placeholder-slate-300 focus:ring-0 focus:outline-none"
+                  placeholder="tu@email.com"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                />
+                <Mail size={18} className="text-slate-300 shrink-0"/>
+              </div>
             </div>
+
+            {/* CONTRASEÑA */}
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">
+                Contraseña
+              </label>
+              <div className="input-field flex items-center px-4 py-3.5 gap-3">
+                <input
+                  type="password"
+                  className="w-full bg-transparent border-none p-0 text-base text-slate-800 placeholder-slate-300 focus:ring-0 focus:outline-none font-mono"
+                  placeholder="••••••••••"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                />
+                <Lock size={18} className="text-slate-300 shrink-0"/>
+              </div>
+            </div>
+
+            {/* Recordarme */}
+            <div className="flex items-center pt-1">
+              <input
+                type="checkbox"
+                id="remember"
+                className="custom-checkbox"
+              />
+              <label htmlFor="remember" className="flex items-center gap-2.5 cursor-pointer select-none group">
+                <span className="box">
+                  <Check size={11} className="text-white"/>
+                </span>
+                <span className="text-sm text-slate-500 group-hover:text-slate-700 transition-colors font-medium">
+                  Recordarme
+                </span>
+              </label>
+            </div>
+
+            {/* Error */}
+            {error && (
+              <div className="bg-red-50 text-red-600 px-4 py-3.5 rounded-xl text-sm flex items-center gap-3 border border-red-100">
+                <AlertCircle size={18} className="shrink-0"/>
+                <span>{error}</span>
+              </div>
+            )}
+
+            {/* Botón */}
+            <div className="pt-2">
+              <button
+                type="submit"
+                disabled={loading}
+                className="btn-ingresar w-full py-4 text-white font-bold rounded-xl flex items-center justify-center gap-3 text-base tracking-widest uppercase disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {loading
+                  ? <Loader2 className="animate-spin" size={20}/>
+                  : <>INGRESAR <ArrowRight size={18}/></>
+                }
+              </button>
+            </div>
+
+          </form>
         </div>
+      </div>
     </div>
   );
 }

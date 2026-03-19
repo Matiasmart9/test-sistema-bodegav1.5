@@ -4,13 +4,13 @@ import { getFirestore } from "firebase/firestore"; // Base de datos
 import { getAuth } from "firebase/auth"; // Autenticación
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAE5T4J8pLtzRimrLvWu2yzUtPwfy4woA4",
-  authDomain: "sistema-web-bodegav2.firebaseapp.com",
-  projectId: "sistema-web-bodegav2",
-  storageBucket: "sistema-web-bodegav2.firebasestorage.app",
-  messagingSenderId: "521168832700",
-  appId: "1:521168832700:web:003a9706521ce0f7e4a8b9",
-  measurementId: "G-P6NWQJ6PJR"
+  apiKey: "AIzaSyD2A6WXSLAD6GxkHbGxKfaMGxu8vbPhUYE",
+  authDomain: "bodega-el-grifo.firebaseapp.com",
+  projectId: "bodega-el-grifo",
+  storageBucket: "bodega-el-grifo.firebasestorage.app",
+  messagingSenderId: "544195531336",
+  appId: "1:544195531336:web:6b75c7b93f96f0dce27e7d",
+  measurementId: "G-J53678G86R"
 };
 
 // Initialize Firebase

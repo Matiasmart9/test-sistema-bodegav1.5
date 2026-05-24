@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { TrendingUp, TrendingDown, Minus, DollarSign, Loader2, History } from 'lucide-react';
+import { formatDate as fmtDate, formatTime } from '../../utils/dateUtils';
 
 const g = (n) => `₲ ${Math.round(n || 0).toLocaleString('es-PY')}`;
 
@@ -40,7 +41,7 @@ export default function ProductPriceHistory({ productId }) {
   const formatDate = (ts) => {
     if (!ts) return '—';
     const d = ts?.toDate ? ts.toDate() : new Date(ts);
-    return d.toLocaleDateString('es-PY') + ' ' + d.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' });
+    return fmtDate(d) + ' ' + formatTime(d);
   };
 
   const DeltaBadge = ({ oldVal, newVal }) => {

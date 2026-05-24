@@ -25,6 +25,24 @@ export default function StockEntry() {
   const [supplier,  setSupplier]  = useState('');
   const [invoiceNo, setInvoiceNo] = useState('');
   const [notes,     setNotes]     = useState('');
+  const [totalCost, setTotalCost] = useState('');
+
+  // ── Proveedores ─────────────────────────────────────────────────────────────
+  const [providers, setProviders] = useState([]);
+  const [providerSearch, setProviderSearch] = useState('');
+  const [showProviderDropdown, setShowProviderDropdown] = useState(false);
+
+  useEffect(() => {
+    const fetchProviders = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'providers'));
+        setProviders(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (e) {
+        console.error('Error fetching providers:', e);
+      }
+    };
+    fetchProviders();
+  }, []);
 
   // Fecha de la entrada — hoy por defecto, editable para cargas retroactivas
   const todayStr = () => {
@@ -117,9 +135,15 @@ export default function StockEntry() {
 
     setSaving(true);
     try {
-      // Construir la fecha seleccionada (mediodía para evitar desfase de zona horaria)
+      // Construir la fecha seleccionada (hora actual si es hoy, o mediodía para evitar desfase de zona horaria)
       const [sy, sm, sd] = entryDateStr.split('-').map(Number);
-      const entryDate = new Date(sy, sm - 1, sd, 12, 0, 0, 0);
+      const now = new Date();
+      const isToday = (
+        now.getFullYear() === sy &&
+        (now.getMonth() + 1) === sm &&
+        now.getDate() === sd
+      );
+      const entryDate = isToday ? now : new Date(sy, sm - 1, sd, 12, 0, 0, 0);
       const batch     = writeBatch(db);
 
       // 1. Actualizar stock de cada producto
@@ -163,8 +187,6 @@ export default function StockEntry() {
 
         return addDoc(collection(db, 'inventory_logs'), {
           productId:   item.originalId,
-          // Para variantes: "Café / 500g", para productos simples: "Café"
-          // InventoryHistoryGlobal usa 'variantName' para mostrar en la columna PRODUCTO / VARIANTE
           variantName: item.name,
           type:        'add',
           change:      parseFloat(item.qtyIn),
@@ -174,6 +196,8 @@ export default function StockEntry() {
           user:        userData?.name || 'Admin',
           date:        entryDate,
           entrySource: 'stock_entry',
+          supplierName: supplier,
+          supplier:    supplier,
         });
       }));
 
@@ -184,6 +208,7 @@ export default function StockEntry() {
         notes:        notes.trim()    || null,
         registeredBy: userData?.name  || 'Admin',
         date:         entryDate,
+        totalCost:    totalCost ? parseFloat(totalCost) : null,
         items:        entryCart.map(i => ({
           productId:   i.originalId,
           productName: i.name,
@@ -193,6 +218,18 @@ export default function StockEntry() {
         totalItems: entryCart.length,
         totalUnits: entryCart.reduce((acc, i) => acc + parseFloat(i.qtyIn), 0),
       });
+
+      if (totalCost && parseFloat(totalCost) > 0) {
+        await addDoc(collection(db, 'shift_movements'), {
+          shiftId: 'ADMIN_ENTRY',
+          type:    'expense',
+          amount:  parseFloat(totalCost),
+          reason:  `Compra Mercadería — Proveedor: ${supplier} (Entrada)`,
+          date:    entryDate,
+          user:    userData?.name || 'Admin',
+          status:  'active',
+        });
+      }
 
       // 4. Feedback y reset
       setLastEntry({
@@ -206,6 +243,7 @@ export default function StockEntry() {
       setSupplier('');
       setInvoiceNo('');
       setNotes('');
+      setTotalCost('');
       setEntryDateStr(todayStr());
       await fetchProducts();
 
@@ -358,18 +396,74 @@ export default function StockEntry() {
                   Modificá si la mercadería llegó en una fecha anterior.
                 </p>
               </div>
-              <div>
+              <div className="relative">
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Proveedor *</label>
-                <input type="text" value={supplier} onChange={e => setSupplier(e.target.value)}
-                  placeholder="Ej: Distribuidora López"
-                  className={`w-full border-2 rounded-lg p-2.5 text-sm focus:outline-none transition-all
-                    ${supplier ? 'border-blue-300 bg-blue-50 text-blue-800 font-bold' : 'border-gray-200'}`}/>
+                <div 
+                  onClick={() => setShowProviderDropdown(!showProviderDropdown)}
+                  className={`w-full border-2 rounded-lg p-2.5 text-sm focus:outline-none transition-all cursor-pointer flex justify-between items-center select-none bg-white
+                    ${supplier ? 'border-blue-300 bg-blue-50 text-blue-800 font-bold' : 'border-gray-200'}`}
+                >
+                  <span className="truncate">{supplier || 'Seleccionar Proveedor'}</span>
+                  <span className="text-gray-400 text-xs">▼</span>
+                </div>
+                
+                {showProviderDropdown && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowProviderDropdown(false)} />
+                    <div className="absolute left-0 right-0 z-50 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl p-2 space-y-2">
+                      <input
+                        type="text"
+                        placeholder="Buscar proveedor..."
+                        value={providerSearch}
+                        onChange={e => setProviderSearch(e.target.value)}
+                        onClick={e => e.stopPropagation()}
+                        className="w-full border border-gray-200 rounded-md p-1.5 text-xs focus:outline-none focus:border-blue-400"
+                        autoFocus
+                      />
+                      <div className="max-h-40 overflow-y-auto divide-y divide-gray-50">
+                        {providers.filter(p => (p.name || '').toLowerCase().includes(providerSearch.toLowerCase())).length === 0 ? (
+                          <p className="text-[10px] text-gray-400 text-center py-2">No se encontraron proveedores</p>
+                        ) : (
+                          providers
+                            .filter(p => (p.name || '').toLowerCase().includes(providerSearch.toLowerCase()))
+                            .map(p => (
+                              <div
+                                key={p.id}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSupplier(p.name);
+                                  setShowProviderDropdown(false);
+                                  setProviderSearch('');
+                                }}
+                                className="p-2 text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-700 font-medium cursor-pointer rounded transition-colors truncate"
+                              >
+                                {p.name} {p.ruc ? `(${p.ruc})` : ''}
+                              </div>
+                            ))
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">N° Factura (opcional)</label>
                 <input type="text" value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)}
                   placeholder="Ej: 001-001-0000456"
                   className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:outline-none focus:border-blue-400"/>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Costo Total Compra (opcional)</label>
+                <input 
+                  type="number" 
+                  value={totalCost} 
+                  onChange={e => setTotalCost(e.target.value)}
+                  placeholder="Ej: 150000"
+                  className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:outline-none focus:border-blue-400"
+                />
+                <p className="text-[10px] text-amber-600 font-bold mt-1 leading-snug">
+                  ⚠ Dejar vacío si no quiere que afecte al Capital Total Acumulado la compra de las mercaderías.
+                </p>
               </div>
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Observaciones (opcional)</label>

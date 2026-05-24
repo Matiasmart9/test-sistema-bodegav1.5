@@ -1,14 +1,15 @@
 import { sileo } from 'sileo';
 import ConfirmModal from '../../components/ui/ConfirmModal';
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Plus, Search, PackageOpen, Edit, Trash2, ChevronDown, ChevronRight, ChevronLeft } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Plus, Search, PackageOpen, Edit, Trash2, ChevronDown, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, ArrowUpAZ, ArrowDownAZ } from 'lucide-react';
 import { collection, getDocs, deleteDoc, doc } from "firebase/firestore";
 import { db } from '../../firebase/config';
 import ReporteExcel from '../../components/products/ReporteExcel';
 
 export default function ItemsList() {
   const navigate = useNavigate();
+  const location = useLocation();
   
   // --- ESTADOS DE DATOS ---
   const [products, setProducts] = useState([]);
@@ -19,13 +20,24 @@ export default function ItemsList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [stockFilter, setStockFilter] = useState("all");
+  const [sortOrder, setSortOrder] = useState("asc"); // 'asc' = A→Z, 'desc' = Z→A
 
   // --- PAGINACIÓN ---
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(() => {
+    if (location.state?.page) {
+      return Number(location.state.page);
+    }
+    const savedPage = sessionStorage.getItem('itemsList_currentPage');
+    return savedPage ? Number(savedPage) : 1;
+  });
   const [itemsPerPage, setItemsPerPage] = useState(10);
   
   const [expandedRows, setExpandedRows] = useState(new Set());
   const [confirmModal, setConfirmModal] = useState(null);
+
+  // Ref para saltar el reset de página en el primer render
+  // (evita pisar el valor de location.state al volver de editar)
+  const isFirstRender = useRef(true);
 
   // 1. CARGA INICIAL
   useEffect(() => {
@@ -80,9 +92,9 @@ export default function ItemsList() {
     setExpandedRows(newExpanded);
   };
 
-  // --- FILTRADO ---
+  // --- FILTRADO Y ORDENAMIENTO ---
   const getFilteredProducts = () => {
-    return products.filter(product => {
+    const filtered = products.filter(product => {
       // 1. Filtro Texto
       const matchesSearch = 
         product.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -108,6 +120,14 @@ export default function ItemsList() {
       }
       return matchesSearch && matchesCategory && matchesStock;
     });
+
+    // Ordenamiento alfabético
+    return filtered.sort((a, b) => {
+      const nameA = a.name.toLowerCase();
+      const nameB = b.name.toLowerCase();
+      if (sortOrder === "asc") return nameA < nameB ? -1 : nameA > nameB ? 1 : 0;
+      return nameA > nameB ? -1 : nameA < nameB ? 1 : 0;
+    });
   };
 
   const filteredProducts = getFilteredProducts();
@@ -119,8 +139,14 @@ export default function ItemsList() {
   const currentItems = filteredProducts.slice(indexOfFirstItem, indexOfLastItem);
 
   useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, categoryFilter, stockFilter, itemsPerPage]);
+    sessionStorage.setItem('itemsList_currentPage', currentPage);
+  }, [currentPage]);
+
+  useEffect(() => {
+    if (totalPages > 0 && currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
 
   const goToPreviousPage = () => setCurrentPage(prev => Math.max(prev - 1, 1));
   const goToNextPage = () => setCurrentPage(prev => Math.min(prev + 1, totalPages));
@@ -159,7 +185,10 @@ export default function ItemsList() {
             <label className="text-xs font-semibold text-gray-500 mb-1 ml-1">Categoría</label>
             <select 
               value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
+              onChange={(e) => {
+                setCategoryFilter(e.target.value);
+                setCurrentPage(1);
+              }}
               className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-primary bg-white min-w-[180px]"
             >
               <option value="all">Todas las categorías</option>
@@ -173,7 +202,10 @@ export default function ItemsList() {
             <label className="text-xs font-semibold text-gray-500 mb-1 ml-1">Alerta de inventario</label>
             <select 
               value={stockFilter}
-              onChange={(e) => setStockFilter(e.target.value)}
+              onChange={(e) => {
+                setStockFilter(e.target.value);
+                setCurrentPage(1);
+              }}
               className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-primary bg-white min-w-[200px]"
             >
               <option value="all">Todos los artículos</option>
@@ -190,7 +222,10 @@ export default function ItemsList() {
                 type="text" 
                 placeholder="Buscar producto..." 
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setCurrentPage(1);
+                }}
                 className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary text-sm"
               />
             </div>
@@ -221,16 +256,31 @@ export default function ItemsList() {
             <>
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
-                  <thead className="bg-gray-50/50 text-gray-500 text-xs uppercase font-bold tracking-wider">
+                  <thead className="bg-primary text-white text-xs uppercase font-bold tracking-wider shadow-sm">
                     <tr>
-                      <th className="w-10 px-4 py-4"></th>
-                      <th className="px-6 py-4">Producto</th>
-                      <th className="px-6 py-4">Categoría</th>
-                      <th className="px-6 py-4">Precio</th>
-                      <th className="px-6 py-4">Coste</th> 
-                      <th className="px-6 py-4">Stock</th>
-                      <th className="px-6 py-4 text-center">Stock Min.</th>
-                      <th className="px-6 py-4 text-right">Acciones</th>
+                      <th className="w-10 px-4 py-4 border-b border-green-600 rounded-tl-lg"></th>
+                      <th className="px-2 py-4 w-12 text-center border-b border-green-600">
+                        <button
+                          onClick={() => {
+                            setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+                            setCurrentPage(1);
+                          }}
+                          title={sortOrder === 'asc' ? 'Orden A → Z (click para invertir)' : 'Orden Z → A (click para invertir)'}
+                          className="flex items-center justify-center gap-1 text-white hover:text-green-100 transition-colors mx-auto"
+                        >
+                          {sortOrder === 'asc'
+                            ? <ArrowUpAZ size={18} className="text-white animate-pulse" />
+                            : <ArrowDownAZ size={18} className="text-white animate-pulse" />
+                          }
+                        </button>
+                      </th>
+                      <th className="px-6 py-4 border-b border-green-600">Producto</th>
+                      <th className="px-6 py-4 border-b border-green-600">Categoría</th>
+                      <th className="px-6 py-4 border-b border-green-600">Precio</th>
+                      <th className="px-6 py-4 border-b border-green-600">Coste</th> 
+                      <th className="px-6 py-4 border-b border-green-600">Stock</th>
+                      <th className="px-6 py-4 text-center border-b border-green-600">Stock Min.</th>
+                      <th className="px-6 py-4 text-right border-b border-green-600 rounded-tr-lg">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -250,6 +300,11 @@ export default function ItemsList() {
                                   {isExpanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
                                 </button>
                               )}
+                            </td>
+                            <td className="px-2 py-4 text-center">
+                              <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-green-50 text-primary font-extrabold text-xs border border-green-100 shadow-xs">
+                                {product.name.charAt(0).toUpperCase()}
+                              </span>
                             </td>
                             <td className="px-6 py-4">
                               <div className="flex items-center gap-3">
@@ -279,7 +334,7 @@ export default function ItemsList() {
                             <td className="px-6 py-4 text-right">
                               <div className="flex items-center justify-end gap-2">
                                 <button 
-                                  onClick={() => navigate(`/productos/editar/${product.id}`)}
+                                  onClick={() => navigate(`/productos/editar/${product.id}`, { state: { page: currentPage } })}
                                   className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100"
                                 >
                                   <Edit size={18} />
@@ -296,7 +351,7 @@ export default function ItemsList() {
 
                           {isExpanded && hasVariants && (
                           <tr className="bg-gray-50/50">
-                              <td colSpan="8" className="px-4 py-4 md:px-10">
+                              <td colSpan="9" className="px-4 py-4 md:px-10">
                               <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm animate-fadeIn">
                                   <table className="w-full text-sm">
                                       <thead className="bg-gray-50 text-xs text-gray-500 uppercase font-semibold border-b border-gray-100">
@@ -339,19 +394,85 @@ export default function ItemsList() {
                 </table>
               </div>
 
-              <div className="border-t border-gray-100 bg-gray-50/50 p-4 flex flex-col md:flex-row justify-between items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <button onClick={goToPreviousPage} disabled={currentPage === 1} className="w-8 h-8 flex items-center justify-center bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"><ChevronLeft size={16} /></button>
-                  <button onClick={goToNextPage} disabled={currentPage === totalPages} className="w-8 h-8 flex items-center justify-center bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"><ChevronRight size={16} /></button>
+              {/* ── PAGINADOR PREMIUM ─────────────────────────────── */}
+              <div className="border-t border-gray-100 bg-white px-5 py-3 flex flex-col sm:flex-row justify-between items-center gap-3">
+
+                {/* Info registros */}
+                <p className="text-xs text-gray-400 whitespace-nowrap">
+                  Mostrando <span className="font-semibold text-gray-600">{indexOfFirstItem + 1}</span>–<span className="font-semibold text-gray-600">{Math.min(indexOfLastItem, filteredProducts.length)}</span> de <span className="font-semibold text-gray-600">{filteredProducts.length}</span> productos
+                </p>
+
+                {/* Botones de página */}
+                <div className="flex items-center gap-1">
+                  {/* Primera página */}
+                  <button
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage === 1}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-green-50 hover:text-primary hover:border-green-300 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    title="Primera página"
+                  ><ChevronsLeft size={14} /></button>
+
+                  {/* Anterior */}
+                  <button
+                    onClick={goToPreviousPage}
+                    disabled={currentPage === 1}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-green-50 hover:text-primary hover:border-green-300 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    title="Página anterior"
+                  ><ChevronLeft size={14} /></button>
+
+                  {/* Números de página */}
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter(p => p === 1 || p === totalPages || (p >= currentPage - 1 && p <= currentPage + 1))
+                    .reduce((acc, p, idx, arr) => {
+                      if (idx > 0 && p - arr[idx - 1] > 1) acc.push('...');
+                      acc.push(p);
+                      return acc;
+                    }, [])
+                    .map((item, idx) =>
+                      item === '...' ? (
+                        <span key={`ellipsis-${idx}`} className="w-8 h-8 flex items-center justify-center text-gray-400 text-sm">…</span>
+                      ) : (
+                        <button
+                          key={item}
+                          onClick={() => setCurrentPage(item)}
+                          className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-medium transition-all border ${
+                            currentPage === item
+                              ? 'bg-primary text-white border-primary shadow-sm shadow-green-200'
+                              : 'bg-white border-gray-200 text-gray-600 hover:bg-green-50 hover:text-primary hover:border-green-300'
+                          }`}
+                        >{item}</button>
+                      )
+                    )
+                  }
+
+                  {/* Siguiente */}
+                  <button
+                    onClick={goToNextPage}
+                    disabled={currentPage === totalPages}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-green-50 hover:text-primary hover:border-green-300 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    title="Página siguiente"
+                  ><ChevronRight size={14} /></button>
+
+                  {/* Última página */}
+                  <button
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={currentPage === totalPages}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-green-50 hover:text-primary hover:border-green-300 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    title="Última página"
+                  ><ChevronsRight size={14} /></button>
                 </div>
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <span>Página:</span>
-                  <div className="w-10 h-8 flex items-center justify-center bg-white border border-gray-200 rounded text-gray-800 font-medium">{currentPage}</div>
-                  <span>de {totalPages}</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <span>Filas por página:</span>
-                  <select value={itemsPerPage} onChange={(e) => setItemsPerPage(Number(e.target.value))} className="h-8 border border-gray-200 rounded bg-white px-2 focus:outline-none focus:border-primary cursor-pointer">
+
+                {/* Filas por página */}
+                <div className="flex items-center gap-2 text-xs text-gray-500">
+                  <span>Filas:</span>
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => {
+                      setItemsPerPage(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="h-8 border border-gray-200 rounded-lg bg-white px-2 text-sm text-gray-700 focus:outline-none focus:border-primary cursor-pointer transition-colors hover:border-gray-300"
+                  >
                     <option value={5}>5</option>
                     <option value={10}>10</option>
                     <option value={25}>25</option>

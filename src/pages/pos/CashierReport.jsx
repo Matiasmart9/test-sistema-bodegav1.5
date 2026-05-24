@@ -10,11 +10,11 @@ import * as XLSX from 'xlsx';
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+import { todayStrPY, formatDate as fmtDate } from '../../utils/dateUtils';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const g     = (n) => `₲ ${Math.round(n || 0).toLocaleString('es-PY')}`;
 const pct   = (n) => `${(n || 0).toFixed(1)}%`;
-const today = () => new Date().toISOString().split('T')[0];
 
 const PAYMENT_LABELS = {
   cash:     'Efectivo',
@@ -28,8 +28,8 @@ export default function CashierReport() {
   const [loading,      setLoading]      = useState(false);
   const [expandedRows, setExpandedRows] = useState(new Set());
   const [dateRange,    setDateRange]    = useState({
-    start: today(),
-    end:   today(),
+    start: todayStrPY(),
+    end:   todayStrPY(),
   });
 
   // ── Fetch & procesar ───────────────────────────────────────────────────────
@@ -109,7 +109,7 @@ export default function CashierReport() {
 
         // Resumen por día
         const dateObj = sale.date?.toDate ? sale.date.toDate() : new Date(sale.date);
-        const dKey    = dateObj.toLocaleDateString('es-PY');
+        const dKey    = fmtDate(dateObj);
         if (!c.dailyMap[dKey]) c.dailyMap[dKey] = { tickets: 0, net: 0, dateObj };
         c.dailyMap[dKey].tickets++;
         c.dailyMap[dKey].net += net;
@@ -185,7 +185,7 @@ export default function CashierReport() {
       c.dailyList.forEach(d => {
         daily.push({
           Cajero:     c.cashierName,
-          Fecha:      d.dateObj.toLocaleDateString('es-PY'),
+          Fecha:      fmtDate(d.dateObj),
           Tickets:    d.tickets,
           'Ventas (₲)': Math.round(d.net),
         });
@@ -415,7 +415,7 @@ export default function CashierReport() {
                           <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
                             {cashier.dailyList.map((d, i) => (
                               <div key={i} className="flex justify-between items-center text-xs">
-                                <span className="text-gray-500">{d.dateObj.toLocaleDateString('es-PY')}</span>
+                                <span className="text-gray-500">{fmtDate(d.dateObj)}</span>
                                 <div className="flex items-center gap-2">
                                   <span className="text-gray-400">{d.tickets} tickets</span>
                                   <span className="font-bold text-gray-800">{g(d.net)}</span>

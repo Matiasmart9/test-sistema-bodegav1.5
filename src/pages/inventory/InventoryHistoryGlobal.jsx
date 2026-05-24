@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, orderBy, getDocs, doc, updateDoc } from "firebase/firestore";
 import { db } from '../../firebase/config';
-import { History, Search, ArrowLeft, ArrowRight, Calendar, User, FileText, Pencil, Check, X } from 'lucide-react';
+import { History, Search, ArrowLeft, ArrowRight, Calendar, User, FileText, Pencil, Check, X, ChevronLeft, ChevronsLeft, ChevronRight, ChevronsRight } from 'lucide-react';
+import { formatDateTime, toInputDatePY } from '../../utils/dateUtils';
 
 export default function InventoryHistoryGlobal() {
   const [allLogs, setAllLogs] = useState([]); // Todos los registros cargados
@@ -10,7 +11,7 @@ export default function InventoryHistoryGlobal() {
   
   // Paginación
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 30;
+  const itemsPerPage = 15;
 
   // Filtros
   const [searchTerm, setSearchTerm] = useState('');
@@ -88,19 +89,11 @@ export default function InventoryHistoryGlobal() {
   const currentItems = filteredLogs.slice(indexOfFirstItem, indexOfLastItem);
   const totalPages = Math.ceil(filteredLogs.length / itemsPerPage);
 
-  // Formateador de Fecha
-  const formatDate = (date) => {
-    return new Intl.DateTimeFormat('es-PY', { 
-      day: '2-digit', month: '2-digit', year: 'numeric', 
-      hour: '2-digit', minute: '2-digit' 
-    }).format(date);
-  };
+  // Formateador de Fecha con timezone Paraguay
+  const formatDate = (date) => formatDateTime(date);
 
-  // Convertir Date a string yyyy-MM-dd para input type="date"
-  const toInputDate = (date) => {
-    const off = date.getTimezoneOffset() * 60000;
-    return new Date(date.getTime() - off).toISOString().split('T')[0];
-  };
+  // Convertir Date a string yyyy-MM-dd en hora Paraguay para input type="date"
+  const toInputDate = (date) => toInputDatePY(date);
 
   // Activar edición de fecha para un log
   const handleStartEditDate = (log) => {
@@ -190,6 +183,7 @@ export default function InventoryHistoryGlobal() {
                         <th className="px-6 py-4">Producto / Variante</th>
                         <th className="px-6 py-4">Empleado</th>
                         <th className="px-6 py-4">Motivo</th>
+                        <th className="px-6 py-4">Proveedor</th>
                         <th className="px-6 py-4 text-right">Ajuste</th>
                         <th className="px-6 py-4 text-right">Stock Final</th>
                     </tr>
@@ -266,6 +260,9 @@ export default function InventoryHistoryGlobal() {
                                         {log.reason}
                                     </span>
                                 </td>
+                                <td className="px-6 py-4 text-gray-600 font-semibold">
+                                    {log.supplierName || log.supplier || '—'}
+                                </td>
                                 <td className="px-6 py-4 text-right">
                                     <span className={`font-bold ${log.change > 0 ? 'text-green-600' : 'text-red-600'}`}>
                                         {log.change > 0 ? '+' : ''}{log.change}
@@ -280,34 +277,70 @@ export default function InventoryHistoryGlobal() {
                 </tbody>
             </table>
         </div>
-        
-        {/* PAGINACIÓN */}
-        <div className="flex items-center justify-between p-4 border-t border-gray-200 bg-gray-50">
-            <span className="text-xs text-gray-500">
-                Mostrando {filteredLogs.length === 0 ? 0 : indexOfFirstItem + 1} - {Math.min(indexOfLastItem, filteredLogs.length)} de {filteredLogs.length} registros
-            </span>
+
+        {/* ── PAGINADOR PREMIUM ── */}
+        <div className="border-t border-gray-100 bg-white px-5 py-3 flex flex-col sm:flex-row justify-between items-center gap-3">
+            <p className="text-xs text-gray-400 whitespace-nowrap">
+                Mostrando <span className="font-semibold text-gray-600">{filteredLogs.length === 0 ? 0 : indexOfFirstItem + 1}</span>–<span className="font-semibold text-gray-600">{Math.min(indexOfLastItem, filteredLogs.length)}</span> de <span className="font-semibold text-gray-600">{filteredLogs.length}</span> registros
+            </p>
             
-            <div className="flex items-center gap-2">
-                <button 
+            <div className="flex items-center gap-1">
+                {/* Primera página */}
+                <button
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage === 1}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-green-50 hover:text-primary hover:border-green-300 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    title="Primera página"
+                ><ChevronsLeft size={14} /></button>
+
+                {/* Anterior */}
+                <button
                     onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                     disabled={currentPage === 1}
-                    className="p-2 bg-white border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    <ArrowLeft size={16}/>
-                </button>
-                
-                {/* Números de página simples */}
-                <span className="text-sm font-bold text-gray-700 px-2">
-                    Página {currentPage} de {totalPages || 1}
-                </span>
+                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-green-50 hover:text-primary hover:border-green-300 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    title="Página anterior"
+                ><ChevronLeft size={14} /></button>
 
-                <button 
+                {/* Números de página */}
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter(p => p === 1 || p === totalPages || (p >= currentPage - 1 && p <= currentPage + 1))
+                    .reduce((acc, p, idx, arr) => {
+                        if (idx > 0 && p - arr[idx - 1] > 1) acc.push('...');
+                        acc.push(p);
+                        return acc;
+                    }, [])
+                    .map((item, idx) =>
+                        item === '...' ? (
+                            <span key={`ellipsis-${idx}`} className="w-8 h-8 flex items-center justify-center text-gray-400 text-sm">…</span>
+                        ) : (
+                            <button
+                                key={item}
+                                onClick={() => setCurrentPage(item)}
+                                className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-medium transition-all border ${
+                                    currentPage === item
+                                        ? 'bg-primary text-white border-primary shadow-sm shadow-green-200'
+                                        : 'bg-white border-gray-200 text-gray-600 hover:bg-green-50 hover:text-primary hover:border-green-300'
+                                }`}
+                            >{item}</button>
+                        )
+                    )
+                }
+
+                {/* Siguiente */}
+                <button
                     onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                     disabled={currentPage === totalPages || totalPages === 0}
-                    className="p-2 bg-white border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    <ArrowRight size={16}/>
-                </button>
+                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-green-50 hover:text-primary hover:border-green-300 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    title="Página siguiente"
+                ><ChevronRight size={14} /></button>
+
+                {/* Última página */}
+                <button
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={currentPage === totalPages || totalPages === 0}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-green-50 hover:text-primary hover:border-green-300 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    title="Última página"
+                ><ChevronsRight size={14} /></button>
             </div>
         </div>
       </div>

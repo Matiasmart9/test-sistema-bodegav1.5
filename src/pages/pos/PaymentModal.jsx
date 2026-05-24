@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Check, Search, UserPlus, User, Mail, Printer, AlertTriangle, MapPin, Hash } from 'lucide-react';
+import { X, Check, Search, UserPlus, User, Mail, Printer, AlertTriangle, MapPin, Hash, Phone } from 'lucide-react';
 import { collection, getDocs, addDoc, query, where } from 'firebase/firestore'; 
 import { db } from '../../firebase/config';
 import TicketInvoice from './TicketInvoice';
@@ -18,7 +18,7 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
   const [selectedClient, setSelectedClient] = useState(null);
   const [isCreatingClient, setIsCreatingClient] = useState(false);
   
-  const [newClientData, setNewClientData] = useState({ name: '', ruc: '', address: '', email: '' });
+  const [newClientData, setNewClientData] = useState({ name: '', ruc: '', address: '', email: '', phone: '', dv: '' });
 
   // VALORES NUMÉRICOS
   const numericReceived = parseFloat(amountPaid) || 0;
@@ -53,8 +53,21 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
       if(!newClientData.name || !newClientData.ruc) return alert("Nombre y RUC obligatorios");
       setLoading(true);
       try {
-          const docRef = await addDoc(collection(db, "clients"), newClientData);
-          const newClient = { id: docRef.id, ...newClientData };
+          // Si completó el guión (dígito verificador), concatenamos "ruc-dv"
+          const finalRuc = newClientData.dv 
+              ? `${newClientData.ruc.trim()}-${newClientData.dv}`
+              : newClientData.ruc.trim();
+
+          const clientToSave = {
+              name: newClientData.name.trim(),
+              ruc: finalRuc,
+              address: newClientData.address.trim(),
+              email: newClientData.email.trim(),
+              phone: newClientData.phone.trim()
+          };
+
+          const docRef = await addDoc(collection(db, "clients"), clientToSave);
+          const newClient = { id: docRef.id, ...clientToSave };
           setSelectedClient(newClient);
           setClientMode('search'); 
           setIsCreatingClient(false);
@@ -205,13 +218,13 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
                                           onClick={() => { setClientMode('final'); setSelectedClient(null); setIsCreatingClient(false); }}
                                           className={`px-3 py-1 text-[10px] font-bold rounded-md transition-colors ${clientMode === 'final' ? 'bg-white shadow text-green-700' : 'text-gray-500'}`}
                                       >
-                                          Final
+                                          Ticket
                                       </button>
                                       <button 
                                           onClick={() => setClientMode('search')}
                                           className={`px-3 py-1 text-[10px] font-bold rounded-md transition-colors ${clientMode === 'search' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}
                                       >
-                                          RUC/Nombre
+                                          Factura
                                       </button>
                                   </div>
                               </div>
@@ -226,16 +239,29 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
                               {/* MODO: BUSCAR */}
                               {clientMode === 'search' && !isCreatingClient && !selectedClient && (
                                   <div className="space-y-2">
-                                      <div className="relative">
-                                          <Search className="absolute left-3 top-2.5 text-gray-400" size={16}/>
-                                          <input 
-                                              type="text" 
-                                              placeholder="Buscar Cliente..." 
-                                              className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 text-sm"
-                                              value={searchTerm}
-                                              onChange={(e) => setSearchTerm(e.target.value)}
-                                              autoFocus
-                                          />
+                                      <div className="flex gap-2">
+                                          <div className="relative flex-1">
+                                              <Search className="absolute left-3 top-2.5 text-gray-400" size={16}/>
+                                              <input 
+                                                  type="text" 
+                                                  placeholder="Buscar Cliente..." 
+                                                  className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 text-sm"
+                                                  value={searchTerm}
+                                                  onChange={(e) => setSearchTerm(e.target.value)}
+                                                  autoFocus
+                                              />
+                                          </div>
+                                          <button
+                                              type="button"
+                                              onClick={() => {
+                                                  setNewClientData({ name: '', ruc: '', address: '', email: '', phone: '', dv: '' });
+                                                  setIsCreatingClient(true);
+                                              }}
+                                              title="Agregar Cliente"
+                                              className="p-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-colors flex items-center justify-center shrink-0 shadow-sm"
+                                          >
+                                              <UserPlus size={18} />
+                                          </button>
                                       </div>
                                       
                                       {searchTerm.length > 1 && foundClients.length === 0 ? (
@@ -282,13 +308,29 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
                                               />
                                           </div>
                                           <div className="grid grid-cols-2 gap-2">
-                                              <div className="relative">
-                                                  <Hash className="absolute left-3 top-2.5 text-gray-400" size={14}/>
-                                                  <input 
-                                                      type="text" placeholder="RUC / CI" 
-                                                      className="w-full pl-9 p-2 rounded border text-sm"
-                                                      value={newClientData.ruc} onChange={e => setNewClientData({...newClientData, ruc: e.target.value})}
-                                                  />
+                                              <div className="flex gap-1">
+                                                  <div className="relative flex-1">
+                                                      <Hash className="absolute left-2.5 top-2.5 text-gray-400" size={14}/>
+                                                      <input 
+                                                          type="text" placeholder="RUC / CI" 
+                                                          className="w-full pl-8 p-2 rounded border text-sm"
+                                                          value={newClientData.ruc} onChange={e => setNewClientData({...newClientData, ruc: e.target.value})}
+                                                      />
+                                                  </div>
+                                                  <div className="w-16 shrink-0">
+                                                      <input 
+                                                          type="text" placeholder="Guión" 
+                                                          maxLength={1}
+                                                          className="w-full p-2 rounded border text-sm text-center font-bold focus:border-blue-500 focus:outline-none"
+                                                          value={newClientData.dv || ''} 
+                                                          onChange={e => {
+                                                              const val = e.target.value;
+                                                              if (val === '' || /^[0-9]$/.test(val)) {
+                                                                  setNewClientData({...newClientData, dv: val});
+                                                              }
+                                                          }}
+                                                      />
+                                                  </div>
                                               </div>
                                               <div className="relative">
                                                   <MapPin className="absolute left-3 top-2.5 text-gray-400" size={14}/>
@@ -305,6 +347,14 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
                                                   type="email" placeholder="Correo Electrónico (Opcional)" 
                                                   className="w-full pl-9 p-2 rounded border text-sm"
                                                   value={newClientData.email} onChange={e => setNewClientData({...newClientData, email: e.target.value})}
+                                              />
+                                          </div>
+                                          <div className="relative">
+                                              <Phone className="absolute left-3 top-2.5 text-gray-400" size={14}/>
+                                              <input 
+                                                  type="tel" placeholder="Número Celular (Opcional)" 
+                                                  className="w-full pl-9 p-2 rounded border text-sm"
+                                                  value={newClientData.phone || ''} onChange={e => setNewClientData({...newClientData, phone: e.target.value})}
                                               />
                                           </div>
                                           <button onClick={handleSaveNewClient} className="w-full bg-blue-600 text-white font-bold py-2 rounded text-xs hover:bg-blue-700">Guardar</button>

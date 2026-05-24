@@ -11,6 +11,7 @@ import {
   Store, MoreVertical, Ban, RefreshCcw, AlertCircle, Loader2, PrinterCheck
 } from 'lucide-react';
 import PaymentModal from './PaymentModal';
+import { formatTime } from '../../utils/dateUtils';
 import ShiftCloseTicket from './ShiftCloseTicket';
 import DiscountModal from './DiscountModal';
 import WeatherWidget from '../../components/ui/WeatherWidget';
@@ -827,7 +828,7 @@ export default function PosTerminal() {
                         <p className="font-bold text-gray-800 text-sm">{sale.ticketId}</p>
                         <p className="text-xs text-gray-500 flex items-center gap-1">
                           <Clock size={10}/>
-                          {new Date(sale.date?.toDate ? sale.date.toDate() : sale.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {formatTime(new Date(sale.date?.toDate ? sale.date.toDate() : sale.date))}
                           {' • '}{sale.items.length} items
                         </p>
                       </div>
@@ -898,7 +899,7 @@ export default function PosTerminal() {
                           <p className="font-bold text-gray-800 text-sm">{sale.ticketId}</p>
                           <p className="text-xs text-gray-500 flex items-center gap-1">
                             <Clock size={10}/>
-                            {sale.dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {formatTime(sale.dateObj)}
                             {' • '}{sale.items?.length || 0} items
                             {' • '}₲ {sale.total?.toLocaleString()}
                           </p>

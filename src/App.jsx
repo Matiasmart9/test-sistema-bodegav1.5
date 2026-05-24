@@ -25,6 +25,8 @@ import ProductSalesReport from './pages/pos/ProductSalesReport';
 import ManualSaleEntry from './pages/pos/ManualSaleEntry';
 import CashierReport from './pages/pos/CashierReport';
 import StockEntry from './pages/inventory/StockEntry';
+import ProvidersList from './pages/inventory/ProvidersList';
+
 
 // ── Pantalla de carga global ─────────────────────────────────────────────────
 const LoadingScreen = () => (
@@ -87,6 +89,7 @@ function App() {
             <Route path="productos/editar/:id"     element={<NewProduct />} />
             <Route path="/articulos/historial"     element={<InventoryHistoryGlobal />} />
             <Route path="/articulos/entrada"       element={<StockEntry />} />
+            <Route path="/articulos/proveedores"   element={<ProvidersList />} />
 
             {/* Gastos directo admin */}
             <Route path="gastos"                   element={<ExpensesHistory />} />

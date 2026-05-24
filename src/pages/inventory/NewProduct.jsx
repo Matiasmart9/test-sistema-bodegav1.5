@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { collection, addDoc, doc, getDoc, updateDoc, getDocs, setDoc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
 import { sileo } from 'sileo';
-import { Save, ArrowLeft, Loader2, Plus, RotateCcw } from 'lucide-react';
+import { Save, ArrowLeft, Loader2, Plus, RotateCcw, AlertTriangle } from 'lucide-react';
 import ProductPricing from '../../components/products/ProductPricing';
 import ProductVariants from '../../components/products/ProductVariants';
 import ProductHistory from '../../components/products/ProductHistory';
@@ -13,6 +13,8 @@ import ProductPriceHistory from '../../components/products/ProductPriceHistory';
 export default function NewProduct() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const returnPage = location.state?.page || 1;
   const { userData } = useAuth();
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(!!id);
@@ -77,7 +79,7 @@ export default function NewProduct() {
         if (data.category) setIsNewCategory(false);
       } else {
         sileo.error({ title: 'Producto no encontrado.' });
-        navigate('/productos');
+        navigate('/productos', { state: { page: returnPage } });
       }
     } catch (error) {
       console.error(error);
@@ -163,7 +165,7 @@ export default function NewProduct() {
         });
         sileo.success({ title: 'Producto creado correctamente.', description: 'Ya está disponible en el catálogo.' });
       }
-      navigate('/productos');
+      navigate('/productos', { state: { page: returnPage } });
     } catch (error) {
       console.error('Error guardando:', error);
       sileo.error({ title: 'Error al guardar el producto.', description: 'Verifique su conexión e intente nuevamente.' });
@@ -181,16 +183,24 @@ export default function NewProduct() {
   return (
     <div className="max-w-4xl mx-auto pb-24">
       <div className="flex items-center gap-4 mb-6">
-        <button type="button" onClick={() => navigate('/productos')} className="p-2 hover:bg-gray-100 rounded-full">
+        <button type="button" onClick={() => navigate('/productos', { state: { page: returnPage } })} className="p-2 hover:bg-gray-100 rounded-full">
           <ArrowLeft size={24} className="text-gray-600" />
         </button>
         <h1 className="text-2xl font-bold text-gray-800">{id ? 'Editar Producto' : 'Nuevo Producto'}</h1>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        
         <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
             <h3 className="text-lg font-bold text-gray-800 mb-4">Información General</h3>
+            {id && (
+              <div className="mb-6 bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg flex items-start gap-3 shadow-xs">
+                <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={18} />
+                <div className="text-xs text-amber-800 leading-relaxed">
+                  <p className="font-bold uppercase tracking-wide text-[10px] text-amber-700 mb-0.5">Aviso de Modificación</p>
+                  Para modificar este producto, debe realizarlo desde el apartado <strong className="font-black">Historial y Notas</strong> que se encuentra más abajo haciendo clic en el botón <strong className="font-black">AGREGAR NOTA / AJUSTE</strong>.
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="md:col-span-2">
                     <label className="block text-sm font-bold text-gray-700 mb-1">Nombre del Producto</label>
@@ -286,7 +296,7 @@ export default function NewProduct() {
         {id && <ProductPriceHistory productId={id} />}
 
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200 flex justify-end gap-4 z-40 md:pl-64">
-            <button type="button" onClick={() => navigate('/productos')} className="px-6 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded-lg transition-colors">Cancelar</button>
+            <button type="button" onClick={() => navigate('/productos', { state: { page: returnPage } })} className="px-6 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded-lg transition-colors">Cancelar</button>
             <button type="submit" disabled={loading} className="px-8 py-2 bg-primary text-white font-bold rounded-lg hover:bg-green-600 transition-colors flex items-center gap-2 shadow-lg shadow-green-200">
                 {loading ? <Loader2 className="animate-spin" /> : <><Save size={20} /> GUARDAR PRODUCTO</>}
             </button>

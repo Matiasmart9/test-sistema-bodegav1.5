@@ -6,30 +6,31 @@ import {
   Package, ChevronDown, ChevronUp, AlertCircle, Tag
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { todayStrPY, formatDate as fmtDate } from '../../utils/dateUtils';
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
-const g   = (n) => `₲ ${Math.round(n || 0).toLocaleString('es-PY')}`;
+const g = (n) => `₲ ${Math.round(n || 0).toLocaleString('es-PY')}`;
 const pct = (n) => `${(n || 0).toFixed(2)}%`;
 
 export default function ProductSalesReport() {
-  const [reportData,   setReportData]   = useState([]);
-  const [loading,      setLoading]      = useState(false);
-  const [searchTerm,   setSearchTerm]   = useState('');
+  const [reportData, setReportData] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const [expandedRows, setExpandedRows] = useState(new Set());
 
   const [dateRange, setDateRange] = useState({
-    start: new Date().toISOString().split('T')[0],
-    end:   new Date().toISOString().split('T')[0],
+    start: todayStrPY(),
+    end: todayStrPY(),
   });
 
   const toggleRow = (dateStr) => {
     setExpandedRows(prev => {
       const next = new Set(prev);
       if (next.has(dateStr)) next.delete(dateStr);
-      else                   next.add(dateStr);
+      else next.add(dateStr);
       return next;
     });
   };
@@ -42,34 +43,34 @@ export default function ProductSalesReport() {
       // Parsear con componentes locales para evitar el desfase UTC en Paraguay (UTC-3)
       const [sy, sm, sd] = dateRange.start.split('-').map(Number);
       const [ey, em, ed] = dateRange.end.split('-').map(Number);
-      const start = new Date(sy, sm - 1, sd,  0,  0,  0,   0);
-      const end   = new Date(ey, em - 1, ed, 23, 59, 59, 999);
+      const start = new Date(sy, sm - 1, sd, 0, 0, 0, 0);
+      const end = new Date(ey, em - 1, ed, 23, 59, 59, 999);
 
-      const snap     = await getDocs(query(collection(db, 'sales'), where('date', '>=', start), where('date', '<=', end)));
+      const snap = await getDocs(query(collection(db, 'sales'), where('date', '>=', start), where('date', '<=', end)));
       const rawSales = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
       const dayMap = {};
 
       rawSales.forEach(sale => {
         const saleDateObj = sale.date?.toDate ? sale.date.toDate() : new Date(sale.date);
-        const dateStr     = saleDateObj.toLocaleDateString('es-PY');
-        const dateKey     = saleDateObj.toISOString().split('T')[0];
+        const dateStr = fmtDate(saleDateObj);
+        const dateKey = fmtDate(saleDateObj); // mismo formato para la clave
 
         if (!dayMap[dateStr]) {
           dayMap[dateStr] = {
-            date:         dateStr,
+            date: dateStr,
             dateKey,
-            dateObj:      saleDateObj,
+            dateObj: saleDateObj,
             ventasBrutas: 0,
-            reembolsos:   0,
-            descuentos:   0,
-            costoBienes:  0,
-            productsMap:  {},
+            reembolsos: 0,
+            descuentos: 0,
+            costoBienes: 0,
+            productsMap: {},
             discountsMap: {},   // ← nuevo: mapa de descuentos aplicados ese día
           };
         }
 
-        const day        = dayMap[dateStr];
+        const day = dayMap[dateStr];
         const isCanceled = sale.status === 'canceled';
 
         if (isCanceled) {
@@ -80,16 +81,16 @@ export default function ProductSalesReport() {
             : parseFloat(sale.total || 0) + parseFloat(sale.discountTotal || 0);
 
           day.ventasBrutas += rawSubTotal;
-          day.descuentos   += parseFloat(sale.discountTotal || 0);
+          day.descuentos += parseFloat(sale.discountTotal || 0);
 
           // ── Costo de bienes + detalle por producto ────────────────────
           if (Array.isArray(sale.items)) {
             sale.items.forEach(item => {
-              const qty     = parseFloat(item.quantity || 0);
-              const price   = parseFloat(item.price    || 0);
-              const cost    = parseFloat(item.cost     || 0);
+              const qty = parseFloat(item.quantity || 0);
+              const price = parseFloat(item.price || 0);
+              const cost = parseFloat(item.cost || 0);
               const revenue = qty * price;
-              const itemCost= qty * cost;
+              const itemCost = qty * cost;
 
               day.costoBienes += itemCost;
 
@@ -98,8 +99,8 @@ export default function ProductSalesReport() {
                 day.productsMap[pName] = { name: pName, quantity: 0, revenue: 0, cost: 0 };
               }
               day.productsMap[pName].quantity += qty;
-              day.productsMap[pName].revenue  += revenue;
-              day.productsMap[pName].cost     += itemCost;
+              day.productsMap[pName].revenue += revenue;
+              day.productsMap[pName].cost += itemCost;
             });
           }
 
@@ -119,15 +120,15 @@ export default function ProductSalesReport() {
 
               if (!day.discountsMap[key]) {
                 day.discountsMap[key] = {
-                  name:        disc.name || 'Descuento',
-                  type:        disc.type,
-                  value:       disc.value,
+                  name: disc.name || 'Descuento',
+                  type: disc.type,
+                  value: disc.value,
                   totalAmount: 0,
-                  times:       0,          // cuántas veces se aplicó
+                  times: 0,          // cuántas veces se aplicó
                 };
               }
               day.discountsMap[key].totalAmount += amount;
-              day.discountsMap[key].times       += (disc.quantity || 1);
+              day.discountsMap[key].times += (disc.quantity || 1);
             });
           }
         }
@@ -135,9 +136,9 @@ export default function ProductSalesReport() {
 
       // Calcular campos derivados
       const result = Object.values(dayMap).map(day => {
-        const ventasNetas    = Math.max(0, day.ventasBrutas - day.descuentos - day.reembolsos);
+        const ventasNetas = Math.max(0, day.ventasBrutas - day.descuentos - day.reembolsos);
         const beneficioBruto = ventasNetas - day.costoBienes;
-        const margen         = ventasNetas > 0 ? (beneficioBruto / ventasNetas) * 100 : 0;
+        const margen = ventasNetas > 0 ? (beneficioBruto / ventasNetas) * 100 : 0;
 
         const products = Object.values(day.productsMap)
           .map(p => ({ ...p, profit: p.revenue - p.cost }))
@@ -163,17 +164,17 @@ export default function ProductSalesReport() {
   // ── Filtrado ──────────────────────────────────────────────────────────────
   const filteredData = searchTerm.trim()
     ? reportData.filter(day =>
-        day.products.some(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
-      )
+      day.products.some(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    )
     : reportData;
 
   // ── Totales generales ─────────────────────────────────────────────────────
   const totals = filteredData.reduce((acc, day) => ({
-    ventasBrutas:   acc.ventasBrutas   + day.ventasBrutas,
-    reembolsos:     acc.reembolsos     + day.reembolsos,
-    descuentos:     acc.descuentos     + day.descuentos,
-    ventasNetas:    acc.ventasNetas    + day.ventasNetas,
-    costoBienes:    acc.costoBienes    + day.costoBienes,
+    ventasBrutas: acc.ventasBrutas + day.ventasBrutas,
+    reembolsos: acc.reembolsos + day.reembolsos,
+    descuentos: acc.descuentos + day.descuentos,
+    ventasNetas: acc.ventasNetas + day.ventasNetas,
+    costoBienes: acc.costoBienes + day.costoBienes,
     beneficioBruto: acc.beneficioBruto + day.beneficioBruto,
   }), { ventasBrutas: 0, reembolsos: 0, descuentos: 0, ventasNetas: 0, costoBienes: 0, beneficioBruto: 0 });
 
@@ -185,24 +186,24 @@ export default function ProductSalesReport() {
 
     // Hoja 1: Resumen por día
     const summaryRows = filteredData.map(day => ({
-      'Fecha':               day.date,
-      'Ventas Brutas (₲)':  Math.round(day.ventasBrutas),
-      'Reembolsos (₲)':     Math.round(day.reembolsos),
-      'Descuentos (₲)':     Math.round(day.descuentos),
-      'Ventas Netas (₲)':   Math.round(day.ventasNetas),
+      'Fecha': day.date,
+      'Ventas Brutas (₲)': Math.round(day.ventasBrutas),
+      'Reembolsos (₲)': Math.round(day.reembolsos),
+      'Descuentos (₲)': Math.round(day.descuentos),
+      'Ventas Netas (₲)': Math.round(day.ventasNetas),
       'Costo de Bienes (₲)': Math.round(day.costoBienes),
       'Beneficio Bruto (₲)': Math.round(day.beneficioBruto),
-      'Margen %':            parseFloat(day.margen.toFixed(2)),
+      'Margen %': parseFloat(day.margen.toFixed(2)),
     }));
     summaryRows.push({
-      'Fecha':               'TOTAL',
-      'Ventas Brutas (₲)':  Math.round(totals.ventasBrutas),
-      'Reembolsos (₲)':     Math.round(totals.reembolsos),
-      'Descuentos (₲)':     Math.round(totals.descuentos),
-      'Ventas Netas (₲)':   Math.round(totals.ventasNetas),
+      'Fecha': 'TOTAL',
+      'Ventas Brutas (₲)': Math.round(totals.ventasBrutas),
+      'Reembolsos (₲)': Math.round(totals.reembolsos),
+      'Descuentos (₲)': Math.round(totals.descuentos),
+      'Ventas Netas (₲)': Math.round(totals.ventasNetas),
       'Costo de Bienes (₲)': Math.round(totals.costoBienes),
       'Beneficio Bruto (₲)': Math.round(totals.beneficioBruto),
-      'Margen %':            parseFloat(totalMargen.toFixed(2)),
+      'Margen %': parseFloat(totalMargen.toFixed(2)),
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Resumen por Día');
 
@@ -214,26 +215,26 @@ export default function ProductSalesReport() {
         : day.products;
       productsToShow.forEach(p => {
         detailRows.push({
-          'Fecha':            day.date,
-          'Producto':         p.name,
+          'Fecha': day.date,
+          'Producto': p.name,
           'Cantidad Vendida': parseFloat(p.quantity.toFixed(3)),
-          'Ingresos (₲)':    Math.round(p.revenue),
-          'Costo (₲)':       Math.round(p.cost),
-          'Ganancia (₲)':    Math.round(p.profit),
-          'Margen %':        p.revenue > 0 ? parseFloat(((p.profit / p.revenue) * 100).toFixed(2)) : 0,
+          'Ingresos (₲)': Math.round(p.revenue),
+          'Costo (₲)': Math.round(p.cost),
+          'Ganancia (₲)': Math.round(p.profit),
+          'Margen %': p.revenue > 0 ? parseFloat(((p.profit / p.revenue) * 100).toFixed(2)) : 0,
         });
       });
       // Agregar descuentos de ese día al detalle
       if (day.discounts.length > 0) {
         day.discounts.forEach(d => {
           detailRows.push({
-            'Fecha':            day.date,
-            'Producto':         `[DESCUENTO] ${d.name}`,
+            'Fecha': day.date,
+            'Producto': `[DESCUENTO] ${d.name}`,
             'Cantidad Vendida': d.times,
-            'Ingresos (₲)':    0,
-            'Costo (₲)':       0,
-            'Ganancia (₲)':    -Math.round(d.totalAmount),
-            'Margen %':        '',
+            'Ingresos (₲)': 0,
+            'Costo (₲)': 0,
+            'Ganancia (₲)': -Math.round(d.totalAmount),
+            'Margen %': '',
           });
         });
       }
@@ -244,7 +245,7 @@ export default function ProductSalesReport() {
 
     if (Capacitor.isNativePlatform()) {
       try {
-        const wbout      = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+        const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
         const saveResult = await Filesystem.writeFile({ path: fileName, data: wbout, directory: Directory.Cache });
         await Share.share({ title: 'Reporte de Ventas', url: saveResult.uri, dialogTitle: 'Descargar Reporte' });
       } catch (e) { console.error('Error exportando:', e); }
@@ -264,7 +265,7 @@ export default function ProductSalesReport() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-            <FileBarChart className="text-purple-600" /> Reporte Financiero de Ventas V1.8
+            <FileBarChart className="text-purple-600" /> Reporte Financiero de Ventas V1.9
           </h1>
           <p className="text-sm text-gray-500">
             Detalle de ventas por fecha — margen, costo de bienes y reembolsos.
@@ -355,11 +356,11 @@ export default function ProductSalesReport() {
 
               <tbody className="divide-y divide-gray-100">
                 {filteredData.map(day => {
-                  const isExpanded      = expandedRows.has(day.date);
-                  const filteredProds   = searchTerm
+                  const isExpanded = expandedRows.has(day.date);
+                  const filteredProds = searchTerm
                     ? day.products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
                     : day.products;
-                  const hasDiscounts    = day.discounts.length > 0;
+                  const hasDiscounts = day.discounts.length > 0;
 
                   return (
                     <React.Fragment key={day.date}>

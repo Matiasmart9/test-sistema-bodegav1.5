@@ -12,7 +12,7 @@ const MAX_ATTEMPTS = 3;
 export default function Login() {
   const navigate = useNavigate();
   const { loginManual } = useAuth();
-  
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -20,70 +20,70 @@ export default function Login() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    if(!email || !password) return setError("Complete todos los campos");
-    
+    if (!email || !password) return setError("Complete todos los campos");
+
     setError('');
     setLoading(true);
 
     try {
       // 1. Intentar login de admin con Firebase Auth
       await signInWithEmailAndPassword(auth, email, password);
-      navigate('/'); 
-      
+      navigate('/');
+
     } catch (firebaseError) {
       // 2. Buscar en empleados
       try {
         const q = query(
-            collection(db, "employees"), 
-            where("email", "==", email),
+          collection(db, "employees"),
+          where("email", "==", email),
         );
-        
+
         const querySnapshot = await getDocs(q);
 
         if (!querySnapshot.empty) {
-            const empDoc = querySnapshot.docs[0];
-            const employeeData = { id: empDoc.id, ...empDoc.data() };
+          const empDoc = querySnapshot.docs[0];
+          const employeeData = { id: empDoc.id, ...empDoc.data() };
 
-            // ── Verificar si está bloqueado ───────────────────────────
-            if (employeeData.isBlocked) {
-              setError('Cuenta bloqueada por múltiples intentos fallidos. Contactá al administrador.');
-              setLoading(false);
-              return;
-            }
+          // ── Verificar si está bloqueado ───────────────────────────
+          if (employeeData.isBlocked) {
+            setError('Cuenta bloqueada por múltiples intentos fallidos. Contactá al administrador.');
+            setLoading(false);
+            return;
+          }
 
-            // ── Verificar contraseña ──────────────────────────────────
-            if (employeeData.password !== password) {
-              const newAttempts = (employeeData.loginAttempts || 0) + 1;
-              const shouldBlock  = newAttempts >= MAX_ATTEMPTS;
+          // ── Verificar contraseña ──────────────────────────────────
+          if (employeeData.password !== password) {
+            const newAttempts = (employeeData.loginAttempts || 0) + 1;
+            const shouldBlock = newAttempts >= MAX_ATTEMPTS;
 
-              await updateDoc(doc(db, 'employees', empDoc.id), {
-                loginAttempts: increment(1),
-                ...(shouldBlock ? { isBlocked: true } : {}),
-              });
-
-              if (shouldBlock) {
-                setError(`Cuenta bloqueada por ${MAX_ATTEMPTS} intentos fallidos. Contactá al administrador.`);
-              } else {
-                setError(`Contraseña incorrecta. Intentos restantes: ${MAX_ATTEMPTS - newAttempts}`);
-              }
-              setLoading(false);
-              return;
-            }
-
-            // ── Login exitoso — resetear intentos ─────────────────────
             await updateDoc(doc(db, 'employees', empDoc.id), {
-              loginAttempts: 0,
-              isBlocked:     false,
-              lastLogin:     new Date(),
+              loginAttempts: increment(1),
+              ...(shouldBlock ? { isBlocked: true } : {}),
             });
 
-            loginManual(employeeData);
-            
-            if (employeeData.role === 'admin') navigate('/');
-            else navigate('/pos');
-            
+            if (shouldBlock) {
+              setError(`Cuenta bloqueada por ${MAX_ATTEMPTS} intentos fallidos. Contactá al administrador.`);
+            } else {
+              setError(`Contraseña incorrecta. Intentos restantes: ${MAX_ATTEMPTS - newAttempts}`);
+            }
+            setLoading(false);
+            return;
+          }
+
+          // ── Login exitoso — resetear intentos ─────────────────────
+          await updateDoc(doc(db, 'employees', empDoc.id), {
+            loginAttempts: 0,
+            isBlocked: false,
+            lastLogin: new Date(),
+          });
+
+          loginManual(employeeData);
+
+          if (employeeData.role === 'admin') navigate('/');
+          else navigate('/pos');
+
         } else {
-            setError('Correo o contraseña incorrectos.');
+          setError('Correo o contraseña incorrectos.');
         }
       } catch (dbError) {
         console.error(dbError);
@@ -167,24 +167,24 @@ export default function Login() {
 
       {/* ── PANEL IZQUIERDO ──────────────────────────────────────────── */}
       <div className="hidden lg:flex w-1/2 login-gradient relative overflow-hidden flex-col justify-center items-center p-12">
-        <div className="orb1"/>
-        <div className="orb2"/>
-        <div className="orb3"/>
+        <div className="orb1" />
+        <div className="orb2" />
+        <div className="orb3" />
 
         <div className="relative z-10 text-center select-none">
           {/* Ícono cerveza glassmorphism */}
           <div className="flex justify-center mb-8">
             <div className="glass-mug p-7 rounded-[2.5rem]">
-              <Beer size={88} className="text-white drop-shadow-lg" strokeWidth={1.4}/>
+              <Beer size={88} className="text-white drop-shadow-lg" strokeWidth={1.4} />
             </div>
           </div>
 
           <h1 className="text-6xl font-extrabold text-white leading-none tracking-tight drop-shadow-sm">
-            Bodega<br/>
+            Bodega<br />
             <span className="text-white/90">El Grifo</span>
           </h1>
           <p className="text-green-100/80 text-base mt-5 font-medium tracking-wide">
-            Gestión inteligente para tu negocio V1.8
+            Gestión inteligente para tu negocio V1.9
           </p>
         </div>
       </div>
@@ -195,7 +195,7 @@ export default function Login() {
         {/* Header móvil */}
         <div className="lg:hidden flex flex-col items-center mb-10">
           <div className="login-gradient p-4 rounded-2xl mb-4 shadow-lg shadow-green-200">
-            <Beer size={40} className="text-white"/>
+            <Beer size={40} className="text-white" />
           </div>
           <h2 className="text-2xl font-bold text-slate-800">Bodega El Grifo</h2>
         </div>
@@ -227,7 +227,7 @@ export default function Login() {
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                 />
-                <Mail size={18} className="text-slate-300 shrink-0"/>
+                <Mail size={18} className="text-slate-300 shrink-0" />
               </div>
             </div>
 
@@ -244,7 +244,7 @@ export default function Login() {
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                 />
-                <Lock size={18} className="text-slate-300 shrink-0"/>
+                <Lock size={18} className="text-slate-300 shrink-0" />
               </div>
             </div>
 
@@ -257,7 +257,7 @@ export default function Login() {
               />
               <label htmlFor="remember" className="flex items-center gap-2.5 cursor-pointer select-none group">
                 <span className="box">
-                  <Check size={11} className="text-white"/>
+                  <Check size={11} className="text-white" />
                 </span>
                 <span className="text-sm text-slate-500 group-hover:text-slate-700 transition-colors font-medium">
                   Recordarme
@@ -268,7 +268,7 @@ export default function Login() {
             {/* Error */}
             {error && (
               <div className="bg-red-50 text-red-600 px-4 py-3.5 rounded-xl text-sm flex items-center gap-3 border border-red-100">
-                <AlertCircle size={18} className="shrink-0"/>
+                <AlertCircle size={18} className="shrink-0" />
                 <span>{error}</span>
               </div>
             )}
@@ -281,8 +281,8 @@ export default function Login() {
                 className="btn-ingresar w-full py-4 text-white font-bold rounded-xl flex items-center justify-center gap-3 text-base tracking-widest uppercase disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {loading
-                  ? <Loader2 className="animate-spin" size={20}/>
-                  : <>INGRESAR <ArrowRight size={18}/></>
+                  ? <Loader2 className="animate-spin" size={20} />
+                  : <>INGRESAR <ArrowRight size={18} /></>
                 }
               </button>
             </div>

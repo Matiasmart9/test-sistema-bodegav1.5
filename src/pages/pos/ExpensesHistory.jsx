@@ -3,8 +3,9 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { collection, query, where, getDocs, orderBy, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
-import { TrendingDown, Calendar, Search, FileSpreadsheet, Loader2, User, XCircle, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
+import { TrendingDown, Calendar, Search, FileSpreadsheet, Loader2, User, XCircle, ChevronLeft, ChevronRight, Filter, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { todayStrPY, formatDate as fmtDate, formatTime } from '../../utils/dateUtils';
 
 export default function ExpensesHistory() {
   const { userData } = useAuth();
@@ -21,8 +22,8 @@ export default function ExpensesHistory() {
 
   // Filtro de Fechas
   const [dateRange, setDateRange] = useState({
-    start: new Date().toISOString().split('T')[0], // Hoy
-    end: new Date().toISOString().split('T')[0]    // Hoy
+    start: todayStrPY(), // Hoy en hora Paraguay
+    end:   todayStrPY()  // Hoy en hora Paraguay
   });
 
   // --- 1. CARGAR GASTOS (CORREGIDO) ---
@@ -97,8 +98,8 @@ export default function ExpensesHistory() {
   // --- 3. EXPORTAR EXCEL ---
   const handleExportExcel = () => {
       const dataToExport = filteredExpenses.map(item => ({
-          'Fecha': item.dateObj.toLocaleDateString(),
-          'Hora': item.dateObj.toLocaleTimeString(),
+          'Fecha': fmtDate(item.dateObj),
+          'Hora': formatTime(item.dateObj),
           'Usuario': item.user || 'Sistema',
           'Motivo / Descripción': item.reason,
           'Monto': item.amount,
@@ -121,6 +122,12 @@ export default function ExpensesHistory() {
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentItems = filteredExpenses.slice(indexOfFirstItem, indexOfLastItem);
   const totalPages = Math.ceil(filteredExpenses.length / itemsPerPage);
+
+  useEffect(() => {
+    if (totalPages > 0 && currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
 
   // Calcular total visible (excluyendo anulados)
   const totalAmount = filteredExpenses
@@ -217,8 +224,8 @@ export default function ExpensesHistory() {
                               return (
                                   <tr key={item.id} className={`hover:bg-red-50/30 transition-colors ${isCanceled ? 'bg-gray-50 opacity-60' : ''}`}>
                                       <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                                          {item.dateObj.toLocaleDateString()} 
-                                          <span className="text-xs text-gray-400 ml-2">{item.dateObj.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                                          {fmtDate(item.dateObj)}
+                                          <span className="text-xs text-gray-400 ml-2">{formatTime(item.dateObj)}</span>
                                       </td>
                                       <td className="px-6 py-4">
                                           <div className="flex items-center gap-2 text-gray-700 font-medium">
@@ -254,30 +261,76 @@ export default function ExpensesHistory() {
               </div>
           )}
 
-          {/* PAGINACIÓN */}
+          {/* ── PAGINADOR PREMIUM ── */}
           {filteredExpenses.length > 0 && (
-            <div className="flex items-center justify-between p-4 border-t border-gray-200 bg-gray-50">
-                <span className="text-xs text-gray-500">
-                    Mostrando {indexOfFirstItem + 1} - {Math.min(indexOfLastItem, filteredExpenses.length)} de {filteredExpenses.length}
-                </span>
-                
-                <div className="flex items-center gap-2">
-                    <button 
-                        onClick={() => setCurrentPage(p => Math.max(p-1, 1))}
-                        disabled={currentPage === 1}
-                        className="p-2 bg-white border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50 transition-colors"
-                    >
-                        <ChevronLeft size={16}/>
-                    </button>
-                    <span className="text-xs font-bold text-gray-700 px-2">Página {currentPage} de {totalPages || 1}</span>
-                    <button 
-                        onClick={() => setCurrentPage(p => Math.min(p+1, totalPages))}
-                        disabled={currentPage === totalPages || totalPages === 0}
-                        className="p-2 bg-white border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50 transition-colors"
-                    >
-                        <ChevronRight size={16}/>
-                    </button>
-                </div>
+            <div className="border-t border-gray-100 bg-white px-5 py-3 flex flex-col sm:flex-row justify-between items-center gap-3">
+              <p className="text-xs text-gray-400 whitespace-nowrap">
+                Mostrando <span className="font-semibold text-gray-600">{indexOfFirstItem + 1}</span>–<span className="font-semibold text-gray-600">{Math.min(indexOfLastItem, filteredExpenses.length)}</span> de <span className="font-semibold text-gray-600">{filteredExpenses.length}</span> registros
+              </p>
+              
+              <div className="flex items-center gap-1">
+                {/* Primera página */}
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-green-50 hover:text-primary hover:border-green-300 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                  title="Primera página"
+                ><ChevronsLeft size={14} /></button>
+
+                {/* Anterior */}
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-green-50 hover:text-primary hover:border-green-300 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                  title="Página anterior"
+                ><ChevronLeft size={14} /></button>
+
+                {/* Números de página */}
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(p => p === 1 || p === totalPages || (p >= currentPage - 1 && p <= currentPage + 1))
+                  .reduce((acc, p, idx, arr) => {
+                    if (idx > 0 && p - arr[idx - 1] > 1) acc.push('...');
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((item, idx) =>
+                    item === '...' ? (
+                      <span key={`ellipsis-${idx}`} className="w-8 h-8 flex items-center justify-center text-gray-400 text-sm">…</span>
+                    ) : (
+                      <button
+                        type="button"
+                        key={item}
+                        onClick={() => setCurrentPage(item)}
+                        className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-medium transition-all border ${
+                          currentPage === item
+                            ? 'bg-primary text-white border-primary shadow-sm shadow-green-200'
+                            : 'bg-white border-gray-200 text-gray-600 hover:bg-green-50 hover:text-primary hover:border-green-300'
+                        }`}
+                      >{item}</button>
+                    )
+                  )
+                }
+
+                {/* Siguiente */}
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages || totalPages === 0}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-green-50 hover:text-primary hover:border-green-300 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                  title="Página siguiente"
+                ><ChevronRight size={14} /></button>
+
+                {/* Última página */}
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages || totalPages === 0}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-green-50 hover:text-primary hover:border-green-300 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                  title="Última página"
+                ><ChevronsRight size={14} /></button>
+              </div>
             </div>
           )}
       </div>

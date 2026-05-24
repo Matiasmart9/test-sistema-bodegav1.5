@@ -8,12 +8,14 @@ import { db } from '../../firebase/config';
 import {
   Receipt, Loader2, Printer, Search, User,
   FileSpreadsheet, Calendar, TrendingUp, Ban,
-  AlertTriangle, TrendingDown, X, Info, DollarSign
+  AlertTriangle, TrendingDown, X, Info, DollarSign,
+  ChevronLeft, ChevronsLeft, ChevronRight, ChevronsRight
 } from 'lucide-react';
 import TicketInvoice from './TicketInvoice';
 import * as XLSX from 'xlsx';
 import { sileo } from 'sileo';
 import ConfirmModal from '../../components/ui/ConfirmModal';
+import { todayStrPY, formatDate as fmtDate, formatTime } from '../../utils/dateUtils';
 
 export default function SalesHistory() {
   const { userData } = useAuth();
@@ -28,15 +30,15 @@ export default function SalesHistory() {
   const [currentPage,      setCurrentPage]      = useState(1);
   const itemsPerPage = 20;
   const [searchTerm,       setSearchTerm]       = useState('');
-  const [dateRange,        setDateRange]        = useState({
-    start: new Date().toISOString().split('T')[0],
-    end:   new Date().toISOString().split('T')[0],
+  const [dateRange, setDateRange] = useState({
+    start: todayStrPY(),
+    end:   todayStrPY(),
   });
 
   // ── Modales ───────────────────────────────────────────────────────────────
   const [selectedSale,     setSelectedSale]     = useState(null);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
-  const [expenseData,      setExpenseData]      = useState({ amount: '', reason: '' });
+  const [expenseData,      setExpenseData]      = useState({ amount: '', reason: '', date: todayStrPY() });
   const [confirmModal,     setConfirmModal]     = useState(null);
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -151,22 +153,33 @@ export default function SalesHistory() {
   // ACCIONES
   // ───────────────────────────────────────────────────────────────────────────
   const handleAddExpenseAdmin = async () => {
-    if (!expenseData.amount || !expenseData.reason) {
-      return sileo.warning({ title: 'Complete el monto y el motivo del gasto.' });
+    if (!expenseData.amount || !expenseData.reason || !expenseData.date) {
+      return sileo.warning({ title: 'Complete todos los campos obligatorios.' });
     }
     try {
+      // Procesar la fecha seleccionada en zona horaria local
+      const [gy, gm, gd] = expenseData.date.split('-').map(Number);
+      const now = new Date();
+      const isToday = (
+        now.getFullYear() === gy &&
+        (now.getMonth() + 1) === gm &&
+        now.getDate() === gd
+      );
+      // Si es hoy, registrar hora actual exacta. Si es retroactivo, mediodía local para evitar desfase de día.
+      const finalDate = isToday ? now : new Date(gy, gm - 1, gd, 12, 0, 0, 0);
+
       await addDoc(collection(db, 'shift_movements'), {
         shiftId: 'ADMIN_ENTRY',
         type:    'expense',
         amount:  parseFloat(expenseData.amount),
         reason:  expenseData.reason + ' (Admin)',
-        date:    new Date(),
+        date:    finalDate,
         user:    userData.name,
         status:  'active',
       });
       sileo.success({ title: 'Gasto registrado correctamente.' });
       setShowExpenseModal(false);
-      setExpenseData({ amount: '', reason: '' });
+      setExpenseData({ amount: '', reason: '', date: todayStrPY() });
       fetchData();
       fetchGlobalBalance();
     } catch (e) {
@@ -284,8 +297,8 @@ export default function SalesHistory() {
         return {
           'Tipo':              'VENTA',
           'Ticket':            item.ticketId,
-          'Fecha':             item.date.toLocaleDateString('es-PY'),
-          'Hora':              item.date.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' }),
+          'Fecha':             fmtDate(item.date),
+          'Hora':              formatTime(item.date),
           'Cajero':            item.userName || '',
           'Cliente':           item.client?.name || 'SIN NOMBRE',
           'Método Pago':       item.paymentMethod === 'cash' ? 'Efectivo'
@@ -305,8 +318,8 @@ export default function SalesHistory() {
       return {
         'Tipo':              'GASTO',
         'Ticket':            '-',
-        'Fecha':             item.date.toLocaleDateString('es-PY'),
-        'Hora':              item.date.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' }),
+        'Fecha':             fmtDate(item.date),
+        'Hora':              formatTime(item.date),
         'Cajero':            item.user || '',
         'Cliente':           '-',
         'Método Pago':       '-',
@@ -435,6 +448,12 @@ export default function SalesHistory() {
   const currentItems = filteredHistory.slice(indexOfFirst, indexOfLast);
   const totalPages   = Math.ceil(filteredHistory.length / itemsPerPage);
 
+  useEffect(() => {
+    if (totalPages > 0 && currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
+
   if (!userData) {
     return (
       <div className="h-screen flex items-center justify-center">
@@ -479,6 +498,17 @@ export default function SalesHistory() {
                 value={expenseData.reason}
                 onChange={e => setExpenseData({ ...expenseData, reason: e.target.value })}
               />
+              
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Fecha del Gasto</label>
+                <input
+                  type="date"
+                  className="w-full border p-2.5 rounded-lg text-sm focus:outline-none focus:border-primary text-gray-700 bg-white"
+                  value={expenseData.date}
+                  onChange={e => setExpenseData({ ...expenseData, date: e.target.value })}
+                />
+              </div>
+
               <div className="flex gap-2 pt-1">
                 <button
                   onClick={() => setShowExpenseModal(false)}
@@ -703,9 +733,9 @@ export default function SalesHistory() {
 
                         {/* Fecha */}
                         <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                          {item.date.toLocaleDateString()}
+                          {fmtDate(item.date)}
                           <span className="text-gray-400 text-xs ml-1">
-                            {item.date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {formatTime(item.date)}
                           </span>
                         </td>
 
@@ -797,31 +827,74 @@ export default function SalesHistory() {
               </table>
             </div>
 
-            {/* Paginación */}
-            <div className="border-t p-4 flex justify-between items-center bg-gray-50">
-              <span className="text-xs text-gray-500">
-                {indexOfFirst + 1}–{Math.min(indexOfLast, filteredHistory.length)} de {filteredHistory.length} registros
-              </span>
-              <div className="flex gap-2">
+            {/* ── PAGINADOR PREMIUM ── */}
+            <div className="border-t border-gray-100 bg-white px-5 py-3 flex flex-col sm:flex-row justify-between items-center gap-3">
+              <p className="text-xs text-gray-400 whitespace-nowrap">
+                Mostrando <span className="font-semibold text-gray-600">{filteredHistory.length === 0 ? 0 : indexOfFirst + 1}</span>–<span className="font-semibold text-gray-600">{Math.min(indexOfLast, filteredHistory.length)}</span> de <span className="font-semibold text-gray-600">{filteredHistory.length}</span> registros
+              </p>
+              
+              <div className="flex items-center gap-1">
+                {/* Primera página */}
                 <button
-                  onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
                   disabled={currentPage === 1}
-                  className="px-4 py-2 bg-white border rounded-lg text-sm hover:bg-gray-100
-                             disabled:opacity-50 transition-colors"
-                >
-                  Anterior
-                </button>
-                <span className="px-3 py-2 text-sm font-medium text-gray-700">
-                  {currentPage} / {totalPages || 1}
-                </span>
+                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-green-50 hover:text-primary hover:border-green-300 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                  title="Primera página"
+                ><ChevronsLeft size={14} /></button>
+
+                {/* Anterior */}
                 <button
-                  onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-green-50 hover:text-primary hover:border-green-300 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                  title="Página anterior"
+                ><ChevronLeft size={14} /></button>
+
+                {/* Números de página */}
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(p => p === 1 || p === totalPages || (p >= currentPage - 1 && p <= currentPage + 1))
+                  .reduce((acc, p, idx, arr) => {
+                    if (idx > 0 && p - arr[idx - 1] > 1) acc.push('...');
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((item, idx) =>
+                    item === '...' ? (
+                      <span key={`ellipsis-${idx}`} className="w-8 h-8 flex items-center justify-center text-gray-400 text-sm">…</span>
+                    ) : (
+                      <button
+                        type="button"
+                        key={item}
+                        onClick={() => setCurrentPage(item)}
+                        className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-medium transition-all border ${
+                          currentPage === item
+                            ? 'bg-primary text-white border-primary shadow-sm shadow-green-200'
+                            : 'bg-white border-gray-200 text-gray-600 hover:bg-green-50 hover:text-primary hover:border-green-300'
+                        }`}
+                      >{item}</button>
+                    )
+                  )
+                }
+
+                {/* Siguiente */}
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                   disabled={currentPage === totalPages || totalPages === 0}
-                  className="px-4 py-2 bg-white border rounded-lg text-sm hover:bg-gray-100
-                             disabled:opacity-50 transition-colors"
-                >
-                  Siguiente
-                </button>
+                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-green-50 hover:text-primary hover:border-green-300 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                  title="Página siguiente"
+                ><ChevronRight size={14} /></button>
+
+                {/* Última página */}
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages || totalPages === 0}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-green-50 hover:text-primary hover:border-green-300 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                  title="Última página"
+                ><ChevronsRight size={14} /></button>
               </div>
             </div>
           </>

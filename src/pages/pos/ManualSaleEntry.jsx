@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import DiscountModal from './DiscountModal';
 import { sileo } from 'sileo';
+import { todayStrPY } from '../../utils/dateUtils';
 
 // ── Helper: genera el próximo ticket (atómico, igual que PosTerminal) ─────────
 async function generateTicketId(db) {
@@ -47,7 +48,7 @@ async function generateTicketId(db) {
   }
 }
 
-const todayStr = () => new Date().toISOString().split('T')[0];
+const todayStr = () => todayStrPY();
 
 export default function ManualSaleEntry() {
   const { userData } = useAuth();

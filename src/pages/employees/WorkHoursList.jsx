@@ -3,12 +3,13 @@ import * as XLSX from 'xlsx';
 import { FileSpreadsheet, Calendar, Search } from 'lucide-react';
 import { collection, query, getDocs, orderBy } from 'firebase/firestore'; 
 import { db } from '../../firebase/config';
+import { todayStrPY, formatDate as fmtDate, formatTime } from '../../utils/dateUtils';
 
 export default function WorkHoursList() {
   // Filtros de fecha (por defecto HOY)
   const [dateRange, setDateRange] = useState({
-    start: new Date().toISOString().split('T')[0],
-    end: new Date().toISOString().split('T')[0]
+    start: todayStrPY(),
+    end:   todayStrPY()
   });
 
   const [shifts, setShifts] = useState([]);
@@ -80,8 +81,8 @@ export default function WorkHoursList() {
   const exportExcel = () => {
     const dataToExport = filteredShifts.map(s => ({
       'Empleado': s.userName,
-      'Apertura': s.openDate.toLocaleString(),
-      'Cierre': s.closeDate ? s.closeDate.toLocaleString() : 'En curso',
+      'Apertura': fmtDate(s.openDate) + ' ' + formatTime(s.openDate),
+      'Cierre': s.closeDate ? fmtDate(s.closeDate) + ' ' + formatTime(s.closeDate) : 'En curso',
       'Caja Inicial': s.startingCash,
       'Caja Final (Est.)': s.finalCash,
       'Estado': s.status === 'open' ? 'ABIERTO' : 'CERRADO',
@@ -168,16 +169,16 @@ export default function WorkHoursList() {
                         
                         {/* APERTURA */}
                         <td className="px-6 py-4 text-gray-600">
-                            {shift.openDate.toLocaleDateString()} <br/>
-                            <span className="text-xs font-bold">{shift.openDate.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                            {fmtDate(shift.openDate)} <br/>
+                            <span className="text-xs font-bold">{formatTime(shift.openDate)}</span>
                         </td>
                         
                         {/* CIERRE */}
                         <td className="px-6 py-4 text-gray-600">
                             {shift.closeDate ? (
                                 <>
-                                    {shift.closeDate.toLocaleDateString()} <br/>
-                                    <span className="text-xs font-bold">{shift.closeDate.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                                    {fmtDate(shift.closeDate)} <br/>
+                                    <span className="text-xs font-bold">{formatTime(shift.closeDate)}</span>
                                 </>
                             ) : (
                                 <span className="text-xs italic text-gray-400">---</span>

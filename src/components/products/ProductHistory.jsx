@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, where, getDocs, doc, getDoc, runTransaction, deleteDoc } from "firebase/firestore";
 import { db } from '../../firebase/config';
-import { History, MessageSquare, PlusCircle, X, Save, ArrowUp, ArrowDown, Minus, Trash2, Edit, AlertTriangle } from 'lucide-react';
+import { History, MessageSquare, PlusCircle, X, Save, ArrowUp, ArrowDown, Minus, Trash2, Edit, AlertTriangle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { sileo } from 'sileo';
 import ConfirmModal from '../ui/ConfirmModal';
+import { formatDateTime, todayStrPY, toInputDatePY } from '../../utils/dateUtils';
 
 export default function ProductHistory({ productId, onStockUpdate }) {
   const { userData } = useAuth();
@@ -16,12 +17,31 @@ export default function ProductHistory({ productId, onStockUpdate }) {
   const [editingLog, setEditingLog] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
 
-  // Helper: fecha de hoy en formato yyyy-MM-dd para el input date
-  const todayStr = () => {
-    const now = new Date();
-    const off = now.getTimezoneOffset() * 60000;
-    return new Date(now.getTime() - off).toISOString().split('T')[0];
-  };
+  // --- PROVEEDORES ---
+  const [providers, setProviders] = useState([]);
+  const [providerSearch, setProviderSearch] = useState('');
+  const [showProviderDropdown, setShowProviderDropdown] = useState(false);
+  const [supplier, setSupplier] = useState('');
+  const [totalCost, setTotalCost] = useState('');
+
+  useEffect(() => {
+    const fetchProviders = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'providers'));
+        setProviders(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (e) {
+        console.error('Error fetching providers:', e);
+      }
+    };
+    fetchProviders();
+  }, []);
+
+  // --- PAGINACIÓN HISTORIAL ---
+  const [histPage, setHistPage] = useState(1);
+  const histPerPage = 5;
+
+  // Helper: fecha de hoy en formato yyyy-MM-dd para Paraguay
+  const todayStr = () => todayStrPY();
 
   const [formData, setFormData] = useState({
     variantIndex: -1,
@@ -91,10 +111,12 @@ export default function ProductHistory({ productId, onStockUpdate }) {
     if (log.change < 0) type = 'subtract';
 
     setEditingLog(log);
-    // Al editar, mostrar la fecha original del log como fecha editable
-    const logDate = log.date?.toDate ? log.date.toDate() : new Date(log.date || Date.now());
-    const logDateOff = logDate.getTime() - logDate.getTimezoneOffset() * 60000;
-    const logDateStr = new Date(logDateOff).toISOString().split('T')[0];
+    setSupplier(log.supplierName || log.supplier || '');
+    setTotalCost('');
+    
+    // Al editar, mostrar la fecha original del log como fecha editable (resolviendo error logDate indefinida)
+    const logDate = log.date?.toDate ? log.date.toDate() : new Date(log.date);
+    const logDateStr = toInputDatePY(logDate);
     setFormData({ variantIndex: vIndex, type, quantity: qty, reason: log.reason, note: log.note || '', date: logDateStr });
     setShowModal(true);
   };
@@ -102,6 +124,8 @@ export default function ProductHistory({ productId, onStockUpdate }) {
   // ABRIR MODAL PARA CREAR
   const handleOpenCreate = () => {
     setEditingLog(null);
+    setSupplier('');
+    setTotalCost('');
     setFormData({ variantIndex: -1, type: 'add', quantity: 0, reason: 'Compra a Proveedor', note: '', date: todayStr() });
     setShowModal(true);
   };
@@ -158,23 +182,63 @@ export default function ProductHistory({ productId, onStockUpdate }) {
             transaction.update(productRef, { current_stock: newStock });
           }
 
-          // Construir la fecha seleccionada (medianoche hora local)
+          // Para EDICIONES: usar la fecha seleccionada con mediodía local (fecha retroactiva)
+          // Para NUEVOS registros: usar la fecha seleccionada pero con la hora ACTUAL del sistema
           const [sy, sm, sd] = formData.date.split('-').map(Number);
-          const selectedDate = new Date(sy, sm - 1, sd, 12, 0, 0, 0); // mediodía para evitar desfase
+          const now = new Date();
+          const isToday = (
+            now.getFullYear() === sy &&
+            (now.getMonth() + 1) === sm &&
+            now.getDate() === sd
+          );
+          let selectedDate;
+          if (!editingLog && isToday) {
+            // Nuevo registro del día de hoy → hora exacta actual
+            selectedDate = now;
+          } else {
+            // Edición o fecha retroactiva → mediodía local para evitar desfase de día
+            selectedDate = new Date(sy, sm - 1, sd, 12, 0, 0, 0);
+          }
+
+          const logPayload = {
+            date: selectedDate, variantName, reason: formData.reason,
+            note: formData.note,
+            change, finalStock: newStock
+          };
+
+          if (formData.type === 'add' || formData.reason === 'Devolución') {
+            logPayload.supplierName = supplier || '';
+            logPayload.supplier = supplier || '';
+            if (supplier) {
+              logPayload.note = `${formData.note ? formData.note + ' — ' : ''}Proveedor: ${supplier}`;
+            }
+          }
 
           if (editingLog) {
             const logRef = doc(db, "inventory_logs", editingLog.id);
             transaction.update(logRef, {
-              date: selectedDate, variantName, reason: formData.reason,
-              note: formData.note, user: userData?.name || 'Usuario (Editado)',
-              change, finalStock: newStock
+              ...logPayload,
+              user: userData?.name || 'Usuario (Editado)'
             });
           } else {
             const newLogRef = doc(collection(db, "inventory_logs"));
             transaction.set(newLogRef, {
-              productId, date: selectedDate, variantName, reason: formData.reason,
-              note: formData.note, user: userData?.name || 'Usuario',
-              change, finalStock: newStock
+              productId,
+              ...logPayload,
+              user: userData?.name || 'Usuario'
+            });
+          }
+
+          if (formData.type === 'add' && totalCost && parseFloat(totalCost) > 0) {
+            const newExpenseRef = doc(collection(db, "shift_movements"));
+            transaction.set(newExpenseRef, {
+              shiftId: 'ADMIN_ENTRY',
+              type:    'expense',
+              amount:  parseFloat(totalCost),
+              reason:  `Compra Mercadería — Proveedor: ${supplier || 'No seleccionado'} (Ajuste Manual: ${variantName})`,
+              date:    selectedDate,
+              user:    userData?.name || 'Admin',
+              status:  'active',
             });
           }
         }),
@@ -186,6 +250,8 @@ export default function ProductHistory({ productId, onStockUpdate }) {
       );
 
       setShowModal(false);
+      // Si es nuevo movimiento, ir a pág 1 (aparece primero por orden desc)
+      if (!editingLog) setHistPage(1);
       fetchHistory();
       if (onStockUpdate) onStockUpdate();
 
@@ -197,10 +263,7 @@ export default function ProductHistory({ productId, onStockUpdate }) {
   const formatDate = (timestamp) => {
     if (!timestamp) return '-';
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    return new Intl.DateTimeFormat('es-PY', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit'
-    }).format(date);
+    return formatDateTime(date);
   };
 
   return (
@@ -211,9 +274,9 @@ export default function ProductHistory({ productId, onStockUpdate }) {
         <ConfirmModal {...confirmModal} onClose={() => setConfirmModal(null)} />
       )}
 
-      <div className="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
-        <h3 className="font-bold text-gray-700 flex items-center gap-2">
-          <History size={18} /> Historial y Notas
+      <div className="p-4 border-b border-gray-100 bg-gradient-to-r from-emerald-50 to-white flex justify-between items-center">
+        <h3 className="font-bold text-emerald-800 flex items-center gap-2">
+          <History size={18} className="text-emerald-600 animate-pulse" /> Historial y Notas
         </h3>
         <button
           type="button"
@@ -318,6 +381,75 @@ export default function ProductHistory({ productId, onStockUpdate }) {
                 </select>
               </div>
 
+              {(formData.type === 'add' || formData.reason === 'Devolución') && (
+                <div className="relative">
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Proveedor *</label>
+                  <div 
+                    onClick={() => setShowProviderDropdown(!showProviderDropdown)}
+                    className={`w-full border rounded p-2 text-sm focus:outline-none transition-all cursor-pointer flex justify-between items-center select-none bg-white
+                      ${supplier ? 'border-blue-300 bg-blue-50 text-blue-800 font-bold' : 'border-gray-200'}`}
+                  >
+                    <span className="truncate">{supplier || 'Seleccionar Proveedor'}</span>
+                    <span className="text-gray-400 text-xs">▼</span>
+                  </div>
+                  
+                  {showProviderDropdown && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setShowProviderDropdown(false)} />
+                      <div className="absolute left-0 right-0 z-50 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl p-2 space-y-2">
+                        <input
+                          type="text"
+                          placeholder="Buscar proveedor..."
+                          value={providerSearch}
+                          onChange={e => setProviderSearch(e.target.value)}
+                          onClick={e => e.stopPropagation()}
+                          className="w-full border border-gray-200 rounded-md p-1.5 text-xs focus:outline-none focus:border-blue-400"
+                          autoFocus
+                        />
+                        <div className="max-h-40 overflow-y-auto divide-y divide-gray-50">
+                          {providers.filter(p => (p.name || '').toLowerCase().includes(providerSearch.toLowerCase())).length === 0 ? (
+                            <p className="text-[10px] text-gray-400 text-center py-2">No se encontraron proveedores</p>
+                          ) : (
+                            providers
+                              .filter(p => (p.name || '').toLowerCase().includes(providerSearch.toLowerCase()))
+                              .map(p => (
+                                <div
+                                  key={p.id}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSupplier(p.name);
+                                    setShowProviderDropdown(false);
+                                    setProviderSearch('');
+                                  }}
+                                  className="p-2 text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-700 font-medium cursor-pointer rounded transition-colors truncate"
+                                >
+                                  {p.name} {p.ruc ? `(${p.ruc})` : ''}
+                                </div>
+                              ))
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {formData.type === 'add' && (
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Costo Total Compra (opcional)</label>
+                  <input 
+                    type="number" 
+                    value={totalCost} 
+                    onChange={e => setTotalCost(e.target.value)}
+                    placeholder="Ej: 150000"
+                    className="w-full border border-gray-200 rounded p-2 text-sm focus:outline-none focus:border-blue-400"
+                  />
+                  <p className="text-[10px] text-amber-600 font-bold mt-1 leading-snug">
+                    ⚠ Dejar vacío si no quiere que afecte al Capital Total Acumulado la compra de las mercaderías.
+                  </p>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nota / Comentario</label>
                 <textarea
@@ -341,25 +473,34 @@ export default function ProductHistory({ productId, onStockUpdate }) {
         </div>
       )}
 
-      <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
-        <table className="w-full text-sm text-left">
-          <thead className="bg-white text-gray-500 font-bold border-b text-xs uppercase sticky top-0 z-10 shadow-sm">
+      {/* TABLA DE HISTORIAL PAGINADA */}
+      {(() => {
+        const totalHistPages = Math.ceil(logs.length / histPerPage);
+        const histStart = (histPage - 1) * histPerPage;
+        const histEnd = histStart + histPerPage;
+        const currentLogs = logs.slice(histStart, histEnd);
+
+        return (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+          <thead className="bg-emerald-600 text-white font-bold text-xs uppercase sticky top-0 z-10 shadow-sm">
             <tr>
-              <th className="px-6 py-3 bg-gray-50">Fecha</th>
-              <th className="px-6 py-3 bg-gray-50">Producto / Variante</th>
-              <th className="px-6 py-3 bg-gray-50">Motivo</th>
-              <th className="px-6 py-3 bg-gray-50">Nota</th>
-              <th className="px-6 py-3 bg-gray-50">Usuario</th>
-              <th className="px-6 py-3 text-right bg-gray-50">Ant.</th>
-              <th className="px-6 py-3 text-right bg-gray-50">Cambio</th>
-              <th className="px-6 py-3 text-right bg-gray-50">Final</th>
-              <th className="px-6 py-3 text-center bg-gray-50">Acciones</th>
+              <th className="px-6 py-3.5 border-r border-emerald-500/25">Fecha</th>
+              <th className="px-6 py-3.5 border-r border-emerald-500/25">Producto / Variante</th>
+              <th className="px-6 py-3.5 border-r border-emerald-500/25">Motivo</th>
+              <th className="px-6 py-3.5 border-r border-emerald-500/25">Nota</th>
+              <th className="px-6 py-3.5 border-r border-emerald-500/25">Usuario</th>
+              <th className="px-6 py-3.5 text-right border-r border-emerald-500/25">Ant.</th>
+              <th className="px-6 py-3.5 text-right border-r border-emerald-500/25">Cambio</th>
+              <th className="px-6 py-3.5 text-right border-r border-emerald-500/25">Final</th>
+              <th className="px-6 py-3.5 text-center">Acciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {logs.length === 0 ? (
               <tr><td colSpan="9" className="p-8 text-center text-gray-400">Sin movimientos registrados</td></tr>
-            ) : logs.map((log) => {
+            ) : currentLogs.map((log) => {
               const previousStock = (log.finalStock || 0) - (log.change || 0);
               return (
                 <tr key={log.id} className="hover:bg-gray-50 transition-colors">
@@ -412,6 +553,46 @@ export default function ProductHistory({ productId, onStockUpdate }) {
           </tbody>
         </table>
       </div>
+
+            {/* PAGINADOR COMPACTO DEL HISTORIAL */}
+            {logs.length > histPerPage && (
+              <div className="border-t border-gray-100 bg-gray-50/50 px-4 py-2.5 flex items-center justify-between gap-3">
+                <p className="text-xs text-gray-400">
+                  <span className="font-semibold text-gray-600">{histStart + 1}</span>–<span className="font-semibold text-gray-600">{Math.min(histEnd, logs.length)}</span> de <span className="font-semibold text-gray-600">{logs.length}</span> registros
+                </p>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setHistPage(1)} disabled={histPage === 1} className="w-7 h-7 flex items-center justify-center rounded border border-gray-200 bg-white text-gray-400 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                    <ChevronsLeft size={13} />
+                  </button>
+                  <button onClick={() => setHistPage(p => Math.max(p - 1, 1))} disabled={histPage === 1} className="w-7 h-7 flex items-center justify-center rounded border border-gray-200 bg-white text-gray-400 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                    <ChevronLeft size={13} />
+                  </button>
+                  {Array.from({ length: totalHistPages }, (_, i) => i + 1)
+                    .filter(p => p === 1 || p === totalHistPages || (p >= histPage - 1 && p <= histPage + 1))
+                    .reduce((acc, p, idx, arr) => { if (idx > 0 && p - arr[idx - 1] > 1) acc.push('...'); acc.push(p); return acc; }, [])
+                    .map((item, idx) =>
+                      item === '...' ? (
+                        <span key={`he-${idx}`} className="w-7 h-7 flex items-center justify-center text-gray-400 text-xs">…</span>
+                      ) : (
+                        <button key={item} onClick={() => setHistPage(item)}
+                          className={`w-7 h-7 flex items-center justify-center rounded text-xs font-medium border transition-all ${
+                            histPage === item ? 'bg-primary text-white border-primary' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                          }`}>{item}</button>
+                      )
+                    )
+                  }
+                  <button onClick={() => setHistPage(p => Math.min(p + 1, totalHistPages))} disabled={histPage === totalHistPages} className="w-7 h-7 flex items-center justify-center rounded border border-gray-200 bg-white text-gray-400 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                    <ChevronRight size={13} />
+                  </button>
+                  <button onClick={() => setHistPage(totalHistPages)} disabled={histPage === totalHistPages} className="w-7 h-7 flex items-center justify-center rounded border border-gray-200 bg-white text-gray-400 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                    <ChevronsRight size={13} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 }

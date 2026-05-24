@@ -4,7 +4,7 @@ import { db } from '../../firebase/config';
 import {
   Clock, User, DollarSign, Calendar, ChevronDown, ChevronUp,
   Loader2, Wallet, FileSpreadsheet, ChevronLeft, ChevronRight,
-  TrendingUp, Tag, ClipboardList, Info
+  TrendingUp, Tag, ClipboardList, Info, ChevronsLeft, ChevronsRight
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -115,6 +115,12 @@ export default function ShiftHistory() {
   const indexOfFirst = indexOfLast - itemsPerPage;
   const currentItems = combined.slice(indexOfFirst, indexOfLast);
   const totalPages   = Math.ceil(combined.length / itemsPerPage);
+
+  useEffect(() => {
+    if (totalPages > 0 && currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
 
   // ── Expandir turno real ──────────────────────────────────────────────────────
   const handleExpand = async (item) => {
@@ -512,16 +518,74 @@ export default function ShiftHistory() {
         )}
       </div>
 
-      {/* ── PAGINACIÓN ─────────────────────────────────────────────── */}
-      <div className="flex justify-between items-center mt-6 pt-4 border-t border-gray-200">
-        <span className="text-sm text-gray-500">
-          Mostrando {indexOfFirst + 1}–{Math.min(indexOfLast, combined.length)} de {combined.length}
-        </span>
-        <div className="flex gap-2">
-          <button onClick={() => setCurrentPage(p => Math.max(p - 1, 1))} disabled={currentPage === 1}
-            className="p-2 border rounded hover:bg-gray-50 disabled:opacity-50"><ChevronLeft size={20} /></button>
-          <button onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))} disabled={currentPage === totalPages || totalPages === 0}
-            className="p-2 border rounded hover:bg-gray-50 disabled:opacity-50"><ChevronRight size={20} /></button>
+      {/* ── PAGINADOR PREMIUM ── */}
+      <div className="border-t border-gray-100 bg-white px-5 py-3 flex flex-col sm:flex-row justify-between items-center gap-3 mt-6">
+        <p className="text-xs text-gray-400 whitespace-nowrap">
+          Mostrando <span className="font-semibold text-gray-600">{combined.length === 0 ? 0 : indexOfFirst + 1}</span>–<span className="font-semibold text-gray-600">{Math.min(indexOfLast, combined.length)}</span> de <span className="font-semibold text-gray-600">{combined.length}</span> registros
+        </p>
+        
+        <div className="flex items-center gap-1">
+          {/* Primera página */}
+          <button
+            type="button"
+            onClick={() => setCurrentPage(1)}
+            disabled={currentPage === 1}
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-green-50 hover:text-primary hover:border-green-300 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            title="Primera página"
+          ><ChevronsLeft size={14} /></button>
+
+          {/* Anterior */}
+          <button
+            type="button"
+            onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+            disabled={currentPage === 1}
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-green-50 hover:text-primary hover:border-green-300 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            title="Página anterior"
+          ><ChevronLeft size={14} /></button>
+
+          {/* Números de página */}
+          {Array.from({ length: totalPages }, (_, i) => i + 1)
+            .filter(p => p === 1 || p === totalPages || (p >= currentPage - 1 && p <= currentPage + 1))
+            .reduce((acc, p, idx, arr) => {
+              if (idx > 0 && p - arr[idx - 1] > 1) acc.push('...');
+              acc.push(p);
+              return acc;
+            }, [])
+            .map((item, idx) =>
+              item === '...' ? (
+                <span key={`ellipsis-${idx}`} className="w-8 h-8 flex items-center justify-center text-gray-400 text-sm">…</span>
+              ) : (
+                <button
+                  type="button"
+                  key={item}
+                  onClick={() => setCurrentPage(item)}
+                  className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-medium transition-all border ${
+                    currentPage === item
+                      ? 'bg-primary text-white border-primary shadow-sm shadow-green-200'
+                      : 'bg-white border-gray-200 text-gray-600 hover:bg-green-50 hover:text-primary hover:border-green-300'
+                  }`}
+                >{item}</button>
+              )
+            )
+          }
+
+          {/* Siguiente */}
+          <button
+            type="button"
+            onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+            disabled={currentPage === totalPages || totalPages === 0}
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-green-50 hover:text-primary hover:border-green-300 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            title="Página siguiente"
+          ><ChevronRight size={14} /></button>
+
+          {/* Última página */}
+          <button
+            type="button"
+            onClick={() => setCurrentPage(totalPages)}
+            disabled={currentPage === totalPages || totalPages === 0}
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-green-50 hover:text-primary hover:border-green-300 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            title="Última página"
+          ><ChevronsRight size={14} /></button>
         </div>
       </div>
     </div>

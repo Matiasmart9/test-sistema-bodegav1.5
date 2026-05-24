@@ -22,6 +22,8 @@ import {
   ClipboardList,
   UserCheck,
   Truck,
+  Monitor,
+  Sparkles,
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -42,7 +44,7 @@ const Sidebar = () => {
       icon: <ShoppingCart size={20} />,
       label: 'Ventas',
       subItems: [
-        { path: '/pos',                   label: 'Terminal TPV' },
+        { path: '/pos',                   label: 'Terminal TPV',      icon: <Monitor size={16} /> },
         { path: '/pos/history',           label: 'Historial Ventas',  icon: <Receipt size={16} /> },
         { path: '/cajas',                 label: 'Historial Cajas',   icon: <Wallet size={16} /> },
         { path: '/pos/gastos',            label: 'Historial Gastos',  icon: <TrendingDown size={16} /> },
@@ -58,9 +60,10 @@ const Sidebar = () => {
       icon: <Package size={20} />,
       label: 'Artículos',
       subItems: [
-        { path: '/productos',           label: 'Lista de Productos' },
+        { path: '/productos',           label: 'Lista de Productos',   icon: <Package size={16} /> },
         { path: '/articulos/historial', label: 'Historial Inventario', icon: <History size={16} /> },
         { path: '/articulos/entrada',   label: 'Entrada Mercadería',   icon: <Truck size={16} /> },
+        { path: '/articulos/proveedores', label: 'Proveedores',        icon: <Users size={16} /> },
         { path: '/descuentos',          label: 'Descuentos',           icon: <Tag size={16} /> },
       ],
     },
@@ -71,8 +74,8 @@ const Sidebar = () => {
       icon: <Briefcase size={20} />,
       label: 'Empleados',
       subItems: [
-        { path: '/empleados',       label: 'Lista de Empleados' },
-        { path: '/empleados/horas', label: 'Horas Trabajadas', icon: <Clock size={16} /> },
+        { path: '/empleados',       label: 'Lista de Empleados',   icon: <Users size={16} /> },
+        { path: '/empleados/horas', label: 'Horas Trabajadas',    icon: <Clock size={16} /> },
       ],
     },
 
@@ -81,17 +84,20 @@ const Sidebar = () => {
   ];
 
   return (
-    <aside className="w-64 bg-white h-screen border-r border-gray-200 flex flex-col fixed left-0 top-0 z-50">
+    <aside className="w-64 bg-gradient-to-b from-white to-gray-50/70 h-screen border-r border-gray-100 flex flex-col fixed left-0 top-0 z-50 shadow-xs select-none">
 
-      {/* HEADER */}
-      <div className="h-16 flex items-center px-3 border-b border-gray-100">
-        <span className="text-3xl font-bold text-gray-800">
-          Bodega <span className="text-primary">el Grifo</span>
+      {/* HEADER PREMIUM */}
+      <div className="h-16 flex items-center gap-2.5 px-4 border-b border-gray-100 bg-white">
+        <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center text-white shadow-md shadow-green-100 shrink-0 animate-pulse">
+          <Sparkles size={16} className="text-white fill-white/20" />
+        </div>
+        <span className="text-lg font-black tracking-tight text-gray-800">
+          Bodega <span className="bg-gradient-to-r from-emerald-600 to-green-500 bg-clip-text text-transparent">el Grifo</span>
         </span>
       </div>
 
       {/* WIDGET CLIMA */}
-      <div className="px-2">
+      <div className="px-3 pt-3">
         <WeatherWidget />
       </div>
 
@@ -105,41 +111,41 @@ const Sidebar = () => {
           const isExpanded = expandedMenus[item.path];
 
           return (
-            <div key={item.path}>
+            <div key={item.path} className="mb-0.5">
               <div
                 onClick={() => item.subItems ? toggleMenu(item.path) : null}
-                className={`flex items-center justify-between px-3 py-3 rounded-lg
-                            transition-colors duration-200 cursor-pointer group
+                className={`flex items-center justify-between px-3 py-2.5 rounded-lg
+                            transition-all duration-200 cursor-pointer group
                             ${isActive && !item.subItems
-                              ? 'bg-green-50 text-green-700 font-medium'
-                              : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'}
-                            ${isActive && item.subItems ? 'text-green-700 font-medium' : ''}`}
+                              ? 'bg-emerald-50 text-emerald-800 font-bold border-l-4 border-emerald-500 pl-3 shadow-xs'
+                              : 'text-gray-500 hover:bg-emerald-50/20 hover:text-emerald-700 hover:pl-4'}
+                            ${isActive && item.subItems ? 'text-emerald-800 font-bold' : ''}`}
               >
                 {item.subItems ? (
                   <div className="flex items-center gap-3 w-full">
-                    <span className={isActive ? 'text-green-600' : 'text-gray-400 group-hover:text-gray-600'}>
+                    <span className={`transition-colors duration-200 ${isActive ? 'text-emerald-600' : 'text-gray-400 group-hover:text-emerald-600'}`}>
                       {item.icon}
                     </span>
-                    <span>{item.label}</span>
+                    <span className="text-sm tracking-wide">{item.label}</span>
                   </div>
                 ) : (
                   <Link to={item.path} className="flex items-center gap-3 w-full">
-                    <span className={isActive ? 'text-green-600' : 'text-gray-400 group-hover:text-gray-600'}>
+                    <span className={`transition-colors duration-200 ${isActive ? 'text-emerald-600' : 'text-gray-400 group-hover:text-emerald-600'}`}>
                       {item.icon}
                     </span>
-                    <span>{item.label}</span>
+                    <span className="text-sm tracking-wide">{item.label}</span>
                   </Link>
                 )}
 
                 {item.subItems && (
-                  <span className="text-gray-400">
-                    {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  <span className={`transition-transform duration-200 ${isActive ? 'text-emerald-600' : 'text-gray-400 group-hover:text-emerald-600'}`}>
+                    {isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                   </span>
                 )}
               </div>
 
               {item.subItems && isExpanded && (
-                <div className="pl-10 space-y-1 mt-1 animate-fadeIn">
+                <div className="pl-4 ml-4 border-l border-gray-100 space-y-1 mt-1 animate-fadeIn">
                   {item.subItems.map(sub => {
                     const isManual  = sub.path === '/pos/registro-manual';
                     const isSubActive = location.pathname === sub.path;
@@ -147,25 +153,25 @@ const Sidebar = () => {
                       <Link
                         key={sub.path}
                         to={sub.path}
-                        className={`block py-2 px-3 text-sm rounded-md transition-colors flex items-center gap-2
+                        className={`py-2 px-3 text-xs rounded-md transition-all duration-200 flex items-center gap-2.5
                           ${isSubActive
-                            ? 'text-green-700 bg-green-50 font-medium'
+                            ? 'text-emerald-800 bg-gradient-to-r from-emerald-50 to-green-50/50 font-bold border-l-2 border-emerald-500 pl-4 shadow-xs'
                             : isManual
-                              ? 'text-indigo-600 border border-dashed border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 font-medium'
-                              : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'}`}
+                              ? 'text-indigo-600 border border-dashed border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 font-semibold'
+                              : 'text-gray-500 hover:text-emerald-700 hover:bg-emerald-50/10 hover:pl-4'}`}
                       >
                         {sub.icon && (
-                          <span className={
+                          <span className={`transition-colors duration-200 ${
                             isSubActive
-                              ? 'text-green-600'
+                              ? 'text-emerald-600'
                               : isManual
                                 ? 'text-indigo-400'
-                                : 'text-gray-400'
-                          }>
+                                : 'text-gray-400 group-hover:text-emerald-600'
+                          }`}>
                             {sub.icon}
                           </span>
                         )}
-                        {sub.label}
+                        <span>{sub.label}</span>
                       </Link>
                     );
                   })}
@@ -176,16 +182,16 @@ const Sidebar = () => {
         })}
       </nav>
 
-      {/* FOOTER USUARIO */}
-      <div className="p-4 border-t border-gray-100 mt-auto bg-gray-50">
-        <div className="flex items-center gap-3 mb-3">
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white
-            ${userData?.role === 'admin' ? 'bg-purple-600' : 'bg-blue-600'}`}>
+      {/* FOOTER USUARIO PREMIUM */}
+      <div className="p-4 border-t border-gray-100 mt-auto bg-gray-50/50">
+        <div className="bg-white border border-gray-100 rounded-xl p-3 shadow-xs flex items-center gap-3 mb-3 hover:shadow-sm transition-shadow">
+          <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold text-white shadow-xs
+            ${userData?.role === 'admin' ? 'bg-gradient-to-tr from-purple-600 to-indigo-500' : 'bg-gradient-to-tr from-blue-600 to-sky-500'}`}>
             {userData?.name ? userData.name.substring(0, 2).toUpperCase() : 'U'}
           </div>
-          <div className="text-sm overflow-hidden">
-            <p className="font-medium text-gray-700 truncate">{userData?.name || 'Usuario'}</p>
-            <p className="text-xs text-gray-400 capitalize">
+          <div className="text-sm overflow-hidden flex-1">
+            <p className="font-bold text-gray-800 truncate leading-none mb-1">{userData?.name || 'Usuario'}</p>
+            <p className="text-[10px] text-gray-400 uppercase font-black tracking-wider leading-none">
               {userData?.role === 'admin' ? 'Administrador' : 'Cajero'}
             </p>
           </div>
@@ -193,9 +199,9 @@ const Sidebar = () => {
 
         <button
           onClick={logout}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm
+          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 text-sm
                      text-red-600 bg-white border border-red-100 rounded-lg
-                     hover:bg-red-50 transition-colors shadow-sm"
+                     hover:bg-red-600 hover:text-white hover:border-red-600 transition-all shadow-xs font-bold"
         >
           <LogOut size={16} /> Salir
         </button>

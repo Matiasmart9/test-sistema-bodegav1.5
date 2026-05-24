@@ -1,5 +1,6 @@
 import { sileo } from 'sileo';
 import React, { useState, useEffect } from 'react';
+import ConfirmModal from '../../components/ui/ConfirmModal';
 import { collection, addDoc, getDocs, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { Users, Search, Plus, Trash2, Edit, Save, X, Mail, Phone, MapPin } from 'lucide-react';

@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, orderBy, getDocs, where } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import {
-  Clock, User, DollarSign, Calendar, ChevronDown, ChevronUp,
+  Clock, User, CreditCard, Calendar, ChevronDown, ChevronUp,
   Loader2, Wallet, FileSpreadsheet, ChevronLeft, ChevronRight,
-  TrendingUp, Tag, ClipboardList, Info, ChevronsLeft, ChevronsRight
+  TrendingUp, Tag, ClipboardList, Info, ChevronsLeft, ChevronsRight,
+  Printer, X, Receipt
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import ShiftCloseTicket from './ShiftCloseTicket';
 
 export default function ShiftHistory() {
   const [allShifts,    setAllShifts]    = useState([]);
@@ -22,6 +24,10 @@ export default function ShiftHistory() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 12;
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
+
+  // ── Estado para modal de ticket de cierre ──────────────────────────────────
+  const [ticketModal, setTicketModal] = useState(null);  // { shiftData, salesTotal, expensesTotal }
+  const [loadingTicket, setLoadingTicket] = useState(false);
 
   // ── Carga inicial: turnos reales + ventas manuales ──────────────────────────
   useEffect(() => {
@@ -262,6 +268,46 @@ export default function ShiftHistory() {
     }
   };
 
+  // ── Ver ticket de cierre de un turno cerrado ────────────────────────────────
+  const handleViewCloseTicket = async (shift) => {
+    setLoadingTicket(true);
+    try {
+      const movQ = query(collection(db, 'shift_movements'), where('shiftId', '==', shift.id));
+      const movSnap = await getDocs(movQ);
+      const totalExpenses = movSnap.docs.reduce((acc, d) => acc + (d.data().amount || 0), 0);
+
+      setTicketModal({
+        shiftData: {
+          id:           shift.id,
+          userName:     shift.userName,
+          openTime:     shift.openDate,
+          closeTime:    shift.closeDate,
+          startingCash: shift.startingCash || 0,
+        },
+        salesTotal:    shift.salesTotal || 0,
+        expensesTotal: totalExpenses,
+      });
+    } catch (e) {
+      console.error('Error cargando ticket de cierre:', e);
+    } finally {
+      setLoadingTicket(false);
+    }
+  };
+
+  const handlePrintCloseTicket = () => {
+    const ticketEl = document.getElementById('shift-close-ticket-print');
+    if (!ticketEl) return;
+    const win = window.open('', '_blank', 'width=350,height=700,toolbar=no,menubar=no,scrollbars=no');
+    if (!win) { alert('Habilitá los pop-ups para este sitio.'); return; }
+    win.document.write(`<!DOCTYPE html>
+<html><head><meta charset="UTF-8"/>
+<script src="https://cdn.tailwindcss.com"><\/script>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Courier New',monospace;width:80mm;background:white}@page{size:80mm auto;margin:0}</style>
+</head><body>${ticketEl.innerHTML}</body></html>`);
+    win.document.close();
+    setTimeout(() => { win.focus(); win.print(); setTimeout(() => win.close(), 500); }, 1000);
+  };
+
   if (loading) {
     return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-primary" /></div>;
   }
@@ -341,7 +387,12 @@ export default function ShiftHistory() {
                       </span>
                       {!isManual && (
                         <span className="flex items-center gap-1">
-                          <Clock size={12} /> {item.openDate?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          <Clock size={12} /> Apertura: {item.openDate?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
+                      {!isManual && item.closeDate && (
+                        <span className="flex items-center gap-1">
+                          <Clock size={12} /> Cierre: {item.closeDate?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       )}
                       {isManual && (
@@ -421,7 +472,7 @@ export default function ShiftHistory() {
                         {/* Digital */}
                         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
                           <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
-                            <DollarSign className="text-blue-600" size={18} /> Digital
+                            <CreditCard className="text-blue-600" size={18} /> Digital
                           </h4>
                           <div className="space-y-2 text-sm">
                             <div className="flex justify-between text-gray-500"><span>QR</span><span>₲ {shiftDetails.breakdown.qr.toLocaleString()}</span></div>
@@ -498,6 +549,20 @@ export default function ShiftHistory() {
                               </tbody>
                             </table>
                           </div>
+                        </div>
+                      )}
+
+                      {/* Botón Ver Ticket de Cierre (solo turnos cerrados) */}
+                      {!isManual && !isOpen && (
+                        <div className="mt-4 flex justify-end">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleViewCloseTicket(item); }}
+                            disabled={loadingTicket}
+                            className="flex items-center gap-2 px-5 py-2.5 bg-gray-800 hover:bg-gray-900 text-white font-bold rounded-xl text-sm transition-all shadow-md hover:shadow-lg disabled:opacity-50"
+                          >
+                            {loadingTicket ? <Loader2 className="animate-spin" size={16}/> : <Receipt size={16}/>}
+                            Ver Ticket de Cierre
+                          </button>
                         </div>
                       )}
                     </>
@@ -588,6 +653,45 @@ export default function ShiftHistory() {
           ><ChevronsRight size={14} /></button>
         </div>
       </div>
+
+      {/* ── MODAL TICKET DE CIERRE ────────────────────────────────────── */}
+      {ticketModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-fadeIn">
+            <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+              <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                <Receipt size={20} className="text-gray-500" /> Ticket de Cierre
+              </h3>
+              <button onClick={() => setTicketModal(null)} className="p-1 hover:bg-gray-200 rounded-full transition-colors">
+                <X size={20} className="text-gray-500" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto bg-gray-100 p-6 flex justify-center">
+              <div id="shift-close-ticket-print" className="bg-white shadow-xl w-full max-w-[320px]">
+                <ShiftCloseTicket
+                  shiftData={ticketModal.shiftData}
+                  salesTotal={ticketModal.salesTotal}
+                  expensesTotal={ticketModal.expensesTotal}
+                />
+              </div>
+            </div>
+            <div className="p-4 bg-white border-t border-gray-200 space-y-2">
+              <button
+                onClick={handlePrintCloseTicket}
+                className="w-full bg-gray-800 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-black transition-colors shadow-lg"
+              >
+                <Printer size={18} /> IMPRIMIR TICKET
+              </button>
+              <button
+                onClick={() => setTicketModal(null)}
+                className="w-full text-gray-400 hover:text-gray-600 font-bold py-2 text-sm transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

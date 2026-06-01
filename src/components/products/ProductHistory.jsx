@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { sileo } from 'sileo';
 import ConfirmModal from '../ui/ConfirmModal';
 import { formatDateTime, todayStrPY, toInputDatePY } from '../../utils/dateUtils';
+import { formatGuaranies, parseGuaraniesStr } from '../../utils/moneyUtils';
 
 export default function ProductHistory({ productId, onStockUpdate }) {
   const { userData } = useAuth();
@@ -438,10 +439,11 @@ export default function ProductHistory({ productId, onStockUpdate }) {
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Costo Total Compra (opcional)</label>
                   <input 
-                    type="number" 
-                    value={totalCost} 
-                    onChange={e => setTotalCost(e.target.value)}
-                    placeholder="Ej: 150000"
+                    type="text" 
+                    inputMode="numeric"
+                    value={formatGuaranies(totalCost)} 
+                    onChange={e => setTotalCost(parseGuaraniesStr(e.target.value))}
+                    placeholder="Ej: 150.000"
                     className="w-full border border-gray-200 rounded p-2 text-sm focus:outline-none focus:border-blue-400"
                   />
                   <p className="text-[10px] text-amber-600 font-bold mt-1 leading-snug">

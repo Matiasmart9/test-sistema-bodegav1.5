@@ -59,7 +59,9 @@ export default function ShiftCloseTicket({ shiftData, salesTotal, expensesTotal 
   if (loading) return <div className="p-6 flex justify-center"><Loader2 className="animate-spin text-gray-400"/></div>;
 
   const openTime      = shiftData?.openTime?.toDate ? shiftData.openTime.toDate() : new Date();
-  const closeTime     = new Date();
+  const closeTime     = shiftData?.closeTime?.toDate ? shiftData.closeTime.toDate()
+                      : shiftData?.closeTime instanceof Date ? shiftData.closeTime
+                      : new Date(); // Fallback para cierre en curso
   const startingCash  = parseFloat(shiftData?.startingCash || 0);
   const salesNet      = parseFloat(salesTotal   || 0);
   const expensesNet   = parseFloat(expensesTotal || 0);

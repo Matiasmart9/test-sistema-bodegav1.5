@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
 import ConfirmModal from '../ui/ConfirmModal';
+import { formatGuaranies, parseGuaranies } from '../../utils/moneyUtils';
 
 export default function ProductVariants({ formData, setFormData }) {
   const [optionDefinitions, setOptionDefinitions] = useState([]);
@@ -216,9 +217,10 @@ export default function ProductVariants({ formData, setFormData }) {
                         <div className="relative">
                             <span className="absolute left-3 top-2.5 text-blue-400 text-xs font-bold">₲</span>
                             <input 
-                                type="number" 
-                                value={variant.price} 
-                                onChange={(e) => updateVariantRow(idx, 'price', e.target.value)} 
+                                type="text" 
+                                inputMode="numeric"
+                                value={formatGuaranies(variant.price)} 
+                                onChange={(e) => updateVariantRow(idx, 'price', parseGuaranies(e.target.value))} 
                                 className="w-full bg-white border border-blue-200 rounded-md py-2 pl-6 pr-3 text-right font-bold text-blue-700 shadow-sm focus:ring-2 focus:ring-blue-200 outline-none" 
                             />
                         </div>
@@ -229,9 +231,10 @@ export default function ProductVariants({ formData, setFormData }) {
                         <div className="relative">
                             <span className="absolute left-3 top-2.5 text-gray-300 text-xs font-bold">₲</span>
                             <input 
-                                type="number" 
-                                value={variant.cost} 
-                                onChange={(e) => updateVariantRow(idx, 'cost', e.target.value)} 
+                                type="text" 
+                                inputMode="numeric"
+                                value={formatGuaranies(variant.cost)} 
+                                onChange={(e) => updateVariantRow(idx, 'cost', parseGuaranies(e.target.value))} 
                                 className="w-full bg-white border border-gray-200 rounded-md py-2 pl-6 pr-3 text-right text-gray-600 outline-none focus:border-gray-400" 
                                 placeholder="0"
                             />

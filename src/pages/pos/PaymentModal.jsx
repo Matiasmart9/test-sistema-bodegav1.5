@@ -3,6 +3,7 @@ import { X, Check, Search, UserPlus, User, Mail, Printer, AlertTriangle, MapPin,
 import { collection, getDocs, addDoc, query, where } from 'firebase/firestore'; 
 import { db } from '../../firebase/config';
 import TicketInvoice from './TicketInvoice';
+import { formatGuaranies, parseGuaraniesStr } from '../../utils/moneyUtils';
 
 export default function PaymentModal({ total, cart, onClose, onProcessPayment, onFinalize }) {
   const [amountPaid, setAmountPaid] = useState('');
@@ -383,11 +384,12 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
                                   <div className="relative">
                                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-lg">₲</span>
                                       <input 
-                                          type="number" 
+                                          type="text" 
+                                          inputMode="numeric"
                                           autoFocus
                                           placeholder={total.toLocaleString()} 
-                                          value={amountPaid}
-                                          onChange={(e) => setAmountPaid(e.target.value)}
+                                          value={formatGuaranies(amountPaid)}
+                                          onChange={(e) => setAmountPaid(parseGuaraniesStr(e.target.value))}
                                           className={`w-full pl-8 pr-4 py-3 text-2xl font-black text-gray-800 bg-gray-50 border-2 rounded-xl outline-none transition-colors ${!isValidPayment ? 'border-red-300 bg-red-50' : 'border-gray-200 focus:border-green-500 focus:bg-white'}`}
                                       />
                                   </div>

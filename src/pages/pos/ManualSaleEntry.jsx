@@ -14,6 +14,7 @@ import {
 import DiscountModal from './DiscountModal';
 import { sileo } from 'sileo';
 import { todayStrPY } from '../../utils/dateUtils';
+import { formatGuaranies, parseGuaraniesStr } from '../../utils/moneyUtils';
 
 // ── Helper: genera el próximo ticket (atómico, igual que PosTerminal) ─────────
 async function generateTicketId(db) {
@@ -165,8 +166,7 @@ export default function ManualSaleEntry() {
   };
 
   const handlePriceChange = (id, value) => {
-    const val = parseFloat(value);
-    if (isNaN(val) || val < 0) return;
+    const val = parseFloat(value) || 0;
     setCart(prev => prev.map(i => i.id === id ? { ...i, price: val } : i));
   };
 
@@ -555,7 +555,7 @@ export default function ManualSaleEntry() {
                       <p className="text-xs font-bold text-gray-800 truncate">{item.name}</p>
                       <div className="flex items-center gap-1 mt-0.5">
                         <span className="text-[9px] text-gray-400">₲</span>
-                        <input type="number" value={item.price} onChange={e => handlePriceChange(item.id, e.target.value)}
+                        <input type="text" inputMode="numeric" value={formatGuaranies(item.price)} onChange={e => handlePriceChange(item.id, parseGuaraniesStr(e.target.value))}
                           className="w-20 text-[10px] font-mono text-gray-600 border-b border-dashed border-gray-300
                                      focus:outline-none focus:border-indigo-400 bg-transparent"
                           title="Precio editable" />

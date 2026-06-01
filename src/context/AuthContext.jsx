@@ -38,34 +38,39 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     // 1. Escuchar a Firebase Auth (Administradores Reales)
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      // ── PRIORIDAD: Si hay sesión de cajero en localStorage, usarla siempre ──
+      // Esto evita que Firebase Auth (admin) pise la sesión activa del cajero
+      const localUser = localStorage.getItem('pos_user');
+      if (localUser) {
+        try {
+          const parsedUser = JSON.parse(localUser);
+          setUser({ uid: parsedUser.id, email: parsedUser.email });
+          setUserData(parsedUser);
+        } catch (e) {
+          localStorage.removeItem('pos_user');
+        }
+        setLoading(false);
+        return; // No continuar con Firebase Auth
+      }
+
       if (currentUser) {
         setUser(currentUser);
         try {
             const docRef = doc(db, "users", currentUser.uid);
             const docSnap = await getDoc(docRef);
             if(docSnap.exists()) {
-                // CORRECCIÓN: Agregamos 'id: currentUser.uid'
                 setUserData({ id: currentUser.uid, ...docSnap.data(), role: 'admin' });
             } else {
-                // CORRECCIÓN: Agregamos 'id: currentUser.uid'
                 setUserData({ id: currentUser.uid, name: currentUser.email, role: 'admin' });
             }
         } catch (e) {
-            // CORRECCIÓN: Agregamos 'id: currentUser.uid'
             setUserData({ id: currentUser.uid, name: 'Admin', role: 'admin' });
         }
         setLoading(false);
       } else {
-        // 2. Si no hay Firebase User, buscar en LocalStorage (Empleados)
-        const localUser = localStorage.getItem('pos_user');
-        if (localUser) {
-            const parsedUser = JSON.parse(localUser);
-            setUser({ uid: parsedUser.id, email: parsedUser.email });
-            setUserData(parsedUser);
-        } else {
-            setUser(null);
-            setUserData(null);
-        }
+        // No hay Firebase User ni localStorage → sin sesión
+        setUser(null);
+        setUserData(null);
         setLoading(false);
       }
     });

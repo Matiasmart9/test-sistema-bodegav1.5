@@ -1,13 +1,20 @@
 import React from 'react';
-import { DollarSign, Percent } from 'lucide-react'; // Importamos Percent
+import { Percent } from 'lucide-react'; // Importamos Percent
+import { formatGuaranies, parseGuaranies } from '../../utils/moneyUtils';
 
 export default function ProductPricing({ formData, setFormData }) {
   
   const handleChange = (e) => {
     const { name, value } = e.target;
+    let parsedValue;
+    if (name === 'price' || name === 'cost') {
+      parsedValue = parseGuaranies(value);
+    } else {
+      parsedValue = parseFloat(value) || 0;
+    }
     setFormData(prev => ({
       ...prev,
-      [name]: parseFloat(value) || 0
+      [name]: parsedValue
     }));
   };
 
@@ -21,11 +28,12 @@ export default function ProductPricing({ formData, setFormData }) {
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Precio de Venta</label>
           <div className="relative">
-            <DollarSign className="absolute left-3 top-2.5 text-gray-400" size={18} />
+            <span className="absolute left-3 top-2.5 text-gray-400 font-bold text-sm select-none">Gs</span>
             <input 
-              type="number" 
+              type="text" 
+              inputMode="numeric"
               name="price"
-              value={formData.price}
+              value={formatGuaranies(formData.price)}
               onChange={handleChange}
               className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary"
             />
@@ -36,11 +44,12 @@ export default function ProductPricing({ formData, setFormData }) {
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Costo (Opcional)</label>
           <div className="relative">
-            <DollarSign className="absolute left-3 top-2.5 text-gray-400" size={18} />
+            <span className="absolute left-3 top-2.5 text-gray-400 font-bold text-sm select-none">Gs</span>
             <input 
-              type="number" 
+              type="text" 
+              inputMode="numeric"
               name="cost"
-              value={formData.cost}
+              value={formatGuaranies(formData.cost)}
               onChange={handleChange}
               className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary"
             />

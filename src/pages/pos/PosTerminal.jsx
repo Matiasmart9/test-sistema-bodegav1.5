@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import PaymentModal from './PaymentModal';
 import { formatTime } from '../../utils/dateUtils';
+import { formatGuaranies, parseGuaraniesStr } from '../../utils/moneyUtils';
 import ShiftCloseTicket from './ShiftCloseTicket';
 import DiscountModal from './DiscountModal';
 import WeatherWidget from '../../components/ui/WeatherWidget';
@@ -63,6 +64,22 @@ async function generateTicketId(db) {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function PosTerminal() {
   const { userData, logout } = useAuth();
+
+  // ── Sesión efectiva: prioriza pos_user de localStorage sobre Firebase Auth ──
+  // Esto evita que la sesión del admin pise la del cajero cuando ambos están activos
+  const effectiveUser = React.useMemo(() => {
+    try {
+      const stored = localStorage.getItem('pos_user');
+      if (stored) return JSON.parse(stored);
+    } catch { /* ignore */ }
+    return userData;
+  }, [userData]);
+
+  // Logout adaptado: si es cajero (localStorage), limpia solo pos_user
+  const handleLogout = () => {
+    localStorage.removeItem('pos_user');
+    logout();
+  };
 
   // --- MODAL DE CONFIRMACIÓN PARA ACCIONES DESTRUCTIVAS ---
   const [confirmModal, setConfirmModal] = useState(null);
@@ -148,9 +165,9 @@ export default function PosTerminal() {
   useEffect(() => {
     const init = async () => {
       await fetchProducts();
-      if (userData?.id) {
+      if (effectiveUser?.id) {
         try {
-          const q        = query(collection(db, 'shifts'), where('userId', '==', userData.id), where('status', '==', 'open'), limit(1));
+          const q        = query(collection(db, 'shifts'), where('userId', '==', effectiveUser.id), where('status', '==', 'open'), limit(1));
           const shiftSnap = await getDocs(q);
           if (!shiftSnap.empty) setCurrentShift({ id: shiftSnap.docs[0].id, ...shiftSnap.docs[0].data() });
         } catch (error) { console.error(error); }
@@ -159,7 +176,7 @@ export default function PosTerminal() {
       setCheckingShift(false);
     };
     init();
-  }, [userData]);
+  }, [effectiveUser]);
 
   // ─── Anulación de ventas ─────────────────────────────────────────────────
   const fetchRecentSales = async () => {
@@ -304,7 +321,7 @@ export default function PosTerminal() {
       // 1. Marcar venta como cancelada
       await updateDoc(doc(db, 'sales', sale.id), {
         status:     'canceled',
-        canceledBy: userData.name,
+        canceledBy: effectiveUser.name,
         canceledAt: new Date(),
       });
 
@@ -358,9 +375,9 @@ export default function PosTerminal() {
     if (!startingCash) return sileo.warning({ title: 'Ingrese el monto inicial de caja.' });
     try {
       const newShift = {
-        userId:       userData.id,
-        userName:     userData.name,
-        userRole:     userData.role,
+        userId:       effectiveUser.id,
+        userName:     effectiveUser.name,
+        userRole:     effectiveUser.role,
         openTime:     new Date(),
         closeTime:    null,
         startingCash: parseFloat(startingCash),
@@ -387,7 +404,7 @@ export default function PosTerminal() {
         amount:  parseFloat(expenseData.amount),
         reason:  expenseData.reason,
         date:    new Date(),
-        user:    userData.name,
+        user:    effectiveUser.name,
       });
       sileo.success({ title: 'Gasto registrado correctamente.' });
       setShowExpenseModal(false);
@@ -427,7 +444,7 @@ export default function PosTerminal() {
         finalExpenses: shiftSummary.expenses,
         finalSales:   shiftSummary.sales,
       });
-      logout();
+      handleLogout();
     } catch (e) {
       sileo.error({ title: 'Error al cerrar el turno.' });
     }
@@ -472,8 +489,8 @@ export default function PosTerminal() {
       const saleProfit = finalTotalAmount - totalCost;
       const saleData = {
         ticketId,
-        userId:           userData.id,
-        userName:         userData.name,
+        userId:           effectiveUser.id,
+        userName:         effectiveUser.name,
         shiftId:          currentShift?.id || 'unknown',
         date:             dateObj,
         subTotal:         subTotalAmount,
@@ -545,7 +562,7 @@ export default function PosTerminal() {
         change:           saleData.change,
         paymentMethod:    saleData.paymentMethod,
         client:           saleData.client,
-        cashier:          userData.name,
+        cashier:          effectiveUser.name,
       };
     } catch (error) {
       console.error(error);
@@ -652,7 +669,7 @@ export default function PosTerminal() {
     return (
       <div className="h-screen bg-slate-900 flex flex-col items-center justify-center p-4 text-white relative">
         <button
-          onClick={logout}
+          onClick={handleLogout}
           className="absolute top-4 right-4 flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
         >
           <LogOut size={20}/> Salir
@@ -675,12 +692,13 @@ export default function PosTerminal() {
             <div className="bg-slate-800 w-full max-w-md rounded-2xl p-6 border border-slate-700 shadow-2xl">
               <h3 className="text-xl font-bold mb-4 text-white">Monto inicial en caja</h3>
               <div className="relative mb-6">
-                <DollarSign className="absolute left-3 top-3.5 text-emerald-500" size={20}/>
+                <span className="absolute left-3 top-3 text-emerald-500 font-bold text-lg select-none">₲</span>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
                   autoFocus
-                  value={startingCash}
-                  onChange={e => setStartingCash(e.target.value)}
+                  value={formatGuaranies(startingCash)}
+                  onChange={e => setStartingCash(parseGuaraniesStr(e.target.value))}
                   onKeyDown={e => e.key === 'Enter' && handleOpenShift()}
                   className="w-full bg-slate-900 border border-slate-600 rounded-lg py-3 pl-10 pr-4
                              text-white text-lg font-mono focus:border-emerald-500 focus:outline-none
@@ -707,7 +725,7 @@ export default function PosTerminal() {
     );
   }
 
-  const canRegisterExpenses = userData?.role === 'admin' || userData?.canRegisterExpenses;
+  const canRegisterExpenses = effectiveUser?.role === 'admin' || effectiveUser?.canRegisterExpenses;
 
   // ── INTERFAZ PRINCIPAL ────────────────────────────────────────────────────
   return (
@@ -756,13 +774,14 @@ export default function PosTerminal() {
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Monto (Guaraníes)</label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
                   autoFocus
                   className="w-full border border-gray-200 p-3 rounded-xl text-lg font-bold
                              focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 transition-all"
                   placeholder="0"
-                  value={expenseData.amount}
-                  onChange={e => setExpenseData({ ...expenseData, amount: e.target.value })}
+                  value={formatGuaranies(expenseData.amount)}
+                  onChange={e => setExpenseData({ ...expenseData, amount: parseGuaraniesStr(e.target.value) })}
                 />
               </div>
               <div>
@@ -1012,7 +1031,7 @@ export default function PosTerminal() {
 
           <div className="flex items-center gap-3 pl-6">
             <div className="text-right hidden xl:block mr-2">
-              <p className="text-sm font-bold text-gray-800">{userData?.name}</p>
+              <p className="text-sm font-bold text-gray-800">{effectiveUser?.name}</p>
               <div className="flex items-center gap-1 justify-end">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"/>
                 <p className="text-[10px] text-emerald-600 font-bold uppercase">Turno Abierto</p>

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { collection, addDoc, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { Save, Tag, ArrowLeft, Info } from 'lucide-react';
+import { formatGuaranies, parseGuaraniesStr } from '../../utils/moneyUtils';
 
 export default function DiscountForm() {
   const { id } = useParams();
@@ -71,10 +72,11 @@ export default function DiscountForm() {
             <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Valor del Descuento</label>
                 <input 
-                    type="number" 
+                    type={formData.type === 'fixed' ? "text" : "number"} 
+                    inputMode={formData.type === 'fixed' ? "numeric" : undefined}
                     // NO ES REQUIRED AHORA
-                    value={formData.value} 
-                    onChange={e=>setFormData({...formData, value:e.target.value})} 
+                    value={formData.type === 'fixed' ? formatGuaranies(formData.value) : formData.value} 
+                    onChange={e=>setFormData({...formData, value: formData.type === 'fixed' ? parseGuaraniesStr(e.target.value) : e.target.value})} 
                     className="w-full border border-gray-300 p-2.5 rounded-lg text-lg font-bold focus:outline-none focus:border-primary" 
                     placeholder={formData.type === 'fixed' ? "Dejar vacío para variable" : "0"}
                 />

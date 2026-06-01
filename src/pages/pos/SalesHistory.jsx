@@ -8,7 +8,7 @@ import { db } from '../../firebase/config';
 import {
   Receipt, Loader2, Printer, Search, User,
   FileSpreadsheet, Calendar, TrendingUp, Ban,
-  AlertTriangle, TrendingDown, X, Info, DollarSign,
+  AlertTriangle, TrendingDown, X, Info,
   ChevronLeft, ChevronsLeft, ChevronRight, ChevronsRight
 } from 'lucide-react';
 import TicketInvoice from './TicketInvoice';
@@ -16,6 +16,7 @@ import * as XLSX from 'xlsx';
 import { sileo } from 'sileo';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import { todayStrPY, formatDate as fmtDate, formatTime } from '../../utils/dateUtils';
+import { formatGuaranies, parseGuaraniesStr } from '../../utils/moneyUtils';
 
 export default function SalesHistory() {
   const { userData } = useAuth();
@@ -485,11 +486,12 @@ export default function SalesHistory() {
             </div>
             <div className="space-y-3">
               <input
-                type="number"
+                type="text"
+                inputMode="numeric"
                 className="w-full border p-2.5 rounded-lg text-sm focus:outline-none focus:border-primary"
                 placeholder="Monto (₲)"
-                value={expenseData.amount}
-                onChange={e => setExpenseData({ ...expenseData, amount: e.target.value })}
+                value={formatGuaranies(expenseData.amount)}
+                onChange={e => setExpenseData({ ...expenseData, amount: parseGuaraniesStr(e.target.value) })}
               />
               <input
                 type="text"
@@ -537,8 +539,8 @@ export default function SalesHistory() {
 
         {userData.role === 'admin' && (
           <div className="bg-gray-900 text-white p-4 rounded-xl shadow-lg flex items-center gap-4 min-w-[260px]">
-            <div className="p-3 bg-white/10 rounded-full">
-              <DollarSign size={24} className="text-green-400" />
+            <div className="p-3 bg-white/10 rounded-full w-12 h-12 flex items-center justify-center font-black text-xl text-green-400 select-none">
+              ₲
             </div>
             <div>
               <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">

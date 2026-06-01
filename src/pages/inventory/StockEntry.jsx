@@ -3,6 +3,7 @@ import { collection, getDocs, addDoc, doc, getDoc, writeBatch } from 'firebase/f
 import { db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
 import { sileo } from 'sileo';
+import { formatGuaranies, parseGuaraniesStr } from '../../utils/moneyUtils';
 import {
   Truck, Search, Plus, Minus, Trash2, Save,
   Package, Barcode, RefreshCw, ClipboardList,
@@ -455,10 +456,11 @@ export default function StockEntry() {
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Costo Total Compra (opcional)</label>
                 <input 
-                  type="number" 
-                  value={totalCost} 
-                  onChange={e => setTotalCost(e.target.value)}
-                  placeholder="Ej: 150000"
+                  type="text" 
+                  inputMode="numeric"
+                  value={formatGuaranies(totalCost)} 
+                  onChange={e => setTotalCost(parseGuaraniesStr(e.target.value))}
+                  placeholder="Ej: 150.000"
                   className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:outline-none focus:border-blue-400"
                 />
                 <p className="text-[10px] text-amber-600 font-bold mt-1 leading-snug">
@@ -524,8 +526,8 @@ export default function StockEntry() {
                       </div>
                       <div>
                         <label className="text-[9px] text-gray-400 font-bold uppercase">Nuevo costo (₲)</label>
-                        <input type="number" value={item.newCost}
-                          onChange={e => updateField(item.id, 'newCost', e.target.value)}
+                        <input type="text" inputMode="numeric" value={formatGuaranies(item.newCost)}
+                          onChange={e => updateField(item.id, 'newCost', parseGuaraniesStr(e.target.value))}
                           className="w-full border border-gray-200 rounded-lg p-1.5 text-xs font-mono text-center
                                      focus:outline-none focus:border-blue-400 mt-0.5"
                           placeholder="0"/>

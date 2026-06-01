@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reporte de Nuevas Funciones y Mejoras de Sistema - Bodega el Grifo</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;900&display=swap');
+    
+    :root {
+      --primary: #059669;
+      --primary-dark: #047857;
+      --primary-light: #ecfdf5;
+      --slate-800: #1e293b;
+      --slate-700: #334155;
+      --slate-600: #475569;
+      --slate-100: #f1f5f9;
+      --amber: #d97706;
+      --orange: #ea580c;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Outfit', sans-serif;
+      background-color: #f8fafc;
+      color: var(--slate-800);
+      line-height: 1.6;
+      padding: 40px 20px;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background-color: #ffffff;
+      padding: 50px;
+      border-radius: 24px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+      border: 1px border var(--slate-100);
+    }
+
+    /* Cabecera Premium */
+    .header {
+      border-bottom: 2px solid var(--slate-100);
+      padding-bottom: 30px;
+      margin-bottom: 40px;
+      position: relative;
+    }
+
+    .badge {
+      display: inline-block;
+      background-color: var(--primary-light);
+      color: var(--primary-dark);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 6px 16px;
+      border-radius: 9999px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 16px;
+    }
+
+    .title {
+      font-size: 32px;
+      font-weight: 900;
+      color: var(--slate-800);
+      line-height: 1.2;
+    }
+
+    .subtitle {
+      font-size: 16px;
+      color: var(--slate-600);
+      margin-top: 8px;
+    }
+
+    /* Metadata */
+    .metadata-grid {
+      display: grid;
+      grid-template-cols: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+      margin-top: 30px;
+      background-color: #f8fafc;
+      padding: 20px;
+      border-radius: 16px;
+      border: 1px solid var(--slate-100);
+    }
+
+    .metadata-item h4 {
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--slate-600);
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+
+    .metadata-item p {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--slate-800);
+    }
+
+    /* Secciones del Reporte */
+    .section {
+      margin-bottom: 45px;
+    }
+
+    .section-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--slate-800);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+      border-left: 4px solid var(--primary);
+      padding-left: 12px;
+    }
+
+    .section-title svg {
+      color: var(--primary);
+      flex-shrink: 0;
+    }
+
+    .paragraph {
+      font-size: 15px;
+      color: var(--slate-700);
+      margin-bottom: 16px;
+      text-align: justify;
+    }
+
+    /* Tarjetas y Listas */
+    .feature-list {
+      list-style-type: none;
+      display: grid;
+      grid-template-cols: 1fr;
+      gap: 14px;
+      margin-top: 15px;
+    }
+
+    .feature-item {
+      background-color: #ffffff;
+      border: 1.5px solid var(--slate-100);
+      padding: 16px 20px;
+      border-radius: 12px;
+      position: relative;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .feature-item::before {
+      content: "✓";
+      color: var(--primary);
+      font-weight: 900;
+      font-size: 16px;
+      margin-top: 1px;
+    }
+
+    .feature-text h5 {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--slate-800);
+      margin-bottom: 4px;
+    }
+
+    .feature-text p {
+      font-size: 13px;
+      color: var(--slate-600);
+    }
+
+    /* Bloques de Alerta */
+    .alert-block {
+      background-color: #fffbeb;
+      border-left: 4px solid var(--amber);
+      padding: 16px 20px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+    }
+
+    .alert-block h5 {
+      font-size: 14px;
+      font-weight: 700;
+      color: #92400e;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .alert-block p {
+      font-size: 13px;
+      color: #b45309;
+    }
+
+    /* Tabla Premium */
+    .table-container {
+      border: 1px solid var(--slate-100);
+      border-radius: 16px;
+      overflow: hidden;
+      margin: 25px 0;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 13px;
+    }
+
+    th {
+      background-color: var(--primary);
+      color: #ffffff;
+      font-weight: 700;
+      padding: 14px 20px;
+    }
+
+    td {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--slate-100);
+      color: var(--slate-700);
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tr:nth-child(even) {
+      background-color: #f8fafc;
+    }
+
+    /* Botón de Impresión de la Web (Invisible en PDF) */
+    .print-button {
+      background-color: var(--primary);
+      color: #ffffff;
+      border: none;
+      font-size: 14px;
+      font-weight: 700;
+      padding: 12px 24px;
+      border-radius: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 4px 12px rgba(5, 150, 105, 0.2);
+      transition: all 0.2s;
+      margin: 30px auto 0 auto;
+    }
+
+    .print-button:hover {
+      background-color: var(--primary-dark);
+      transform: translateY(-1px);
+    }
+
+    /* ESTILOS DE IMPRESIÓN (PDF) */
+    @media print {
+      body {
+        background-color: #ffffff;
+        padding: 0;
+        color: #000000;
+      }
+
+      .container {
+        box-shadow: none;
+        padding: 0;
+        max-width: 100%;
+        border: none;
+      }
+
+      .print-button {
+        display: none !important;
+      }
+
+      .section {
+        page-break-inside: avoid;
+      }
+
+      th {
+        background-color: var(--primary) !important;
+        color: #ffffff !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      .metadata-grid {
+        background-color: #f8fafc !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      .badge {
+        background-color: var(--primary-light) !important;
+        color: var(--primary-dark) !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    
+    <!-- CABECERA -->
+    <div class="header">
+      <span class="badge">Nuevas Funcionalidades</span>
+      <h1 class="title">Reporte de Actualizaciones e Integración del Sistema</h1>
+      <p class="subtitle">Documentación técnica de mejoras para la administración de stock, control contable de compras y paginación premium.</p>
+      
+      <div class="metadata-grid">
+        <div class="metadata-item">
+          <h4>Plataforma</h4>
+          <p>Bodega el Grifo v2</p>
+        </div>
+        <div class="metadata-item">
+          <h4>Fecha de Entrega</h4>
+          <p>24 de Mayo de 2026</p>
+        </div>
+        <div class="metadata-item">
+          <h4>Destinatario</h4>
+          <p>Administrador / Auditor</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECCIÓN 1: PROVEEDORES -->
+    <div class="section">
+      <h3 class="section-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h21a1 1 0 0 0 1-1V8a2 2 0 0 0-2-2h-5"/><path d="M15 18H9"/></svg>
+        1. Nuevo Módulo: Directorio de Proveedores Interactivo
+      </h3>
+      <p class="paragraph">
+        Se ha desarrollado de forma nativa e integrado el módulo de <strong>Directorio de Proveedores</strong> para permitir a la administración un control absoluto de las compras, el abastecimiento de mercaderías y la trazabilidad de devoluciones de inventario.
+      </p>
+      
+      <ul class="feature-list">
+        <li class="feature-item">
+          <div class="feature-text">
+            <h5>Ficha Interactiva de Transacciones:</h5>
+            <p>Al hacer clic sobre la tarjeta de cualquier proveedor, se despliega una ventana premium que reúne su Razón Social, RUC, teléfono, dirección y correo.</p>
+          </div>
+        </li>
+        <li class="feature-item">
+          <div class="feature-text">
+            <h5>Pestaña "Compras Realizadas" (Desglose Expandible):</h5>
+            <p>Muestra el historial completo de compras registradas. Cada fila expone la fecha, N° Factura, el total pagado y observaciones. Al presionar una compra, se abre un desglose mostrando los productos comprados, su cantidad y costo unitario.</p>
+          </div>
+        </li>
+        <li class="feature-item">
+          <div class="feature-text">
+            <h5>Pestaña "Devoluciones y Ajustes":</h5>
+            <p>Detalla las salidas de stock realizadas bajo el motivo de "Devolución" a dicho proveedor, con la cantidad en rojo (ej: -5) para facilitar la auditoría de mermas.</p>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <!-- SECCIÓN 2: ENTRADA DE MERCADERÍA -->
+    <div class="section">
+      <h3 class="section-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+        2. Entrada de Mercadería & Afectación Contable
+      </h3>
+      <p class="paragraph">
+        El flujo de compras en el apartado de <strong>Entrada de Mercadería</strong> y en el <strong>Ajuste de Stock Manual</strong> de la ficha técnica de producto ha sido optimizado con características inteligentes de control financiero:
+      </p>
+
+      <ul class="feature-list">
+        <li class="feature-item">
+          <div class="feature-text">
+            <h5>Buscador Dropdown de Proveedores:</h5>
+            <p>Se reemplazó el campo plano de texto por un selector premium que filtra en tiempo real por Razón Social o RUC, limitando la vista inicial a 5 elementos con scroll interno.</p>
+          </div>
+        </li>
+        <li class="feature-item">
+          <div class="feature-text">
+            <h5>Costo de Caja Opcional (Deducción Contable):</h5>
+            <p>Añadido un campo de Costo Total de la compra. Si se completa, el sistema registra de forma automática un egreso en la caja (Movimientos de Turno), afectando dinámicamente el Capital Total Acumulado.</p>
+          </div>
+        </li>
+        <li class="feature-item">
+          <div class="feature-text">
+            <h5>Sincronización de Hora Exacta:</h5>
+            <p>Al guardar un movimiento del día de hoy, el sistema registra los segundos y minutos exactos del sistema en vez de forzar las 12:00 p.m., otorgando precisión absoluta en reportes horarios.</p>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <!-- SECCIÓN 3: AJUSTES Y DEVOLUCIONES -->
+    <div class="section">
+      <h3 class="section-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 8 8 12 12 16"/><line x1="16" y1="12" x2="8" y2="12"/></svg>
+        3. Historial de Productos & Devoluciones Vinculadas
+      </h3>
+      <p class="paragraph">
+        Se habilitó un flujo seguro y visual para mermas y ajustes en la pestaña de <strong>Historial y Notas</strong> de la edición de productos:
+      </p>
+
+      <div class="alert-block">
+        <h5>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Vinculación de Devoluciones:
+        </h5>
+        <p>
+          Al registrar una <strong>Salida (-)</strong> con motivo <strong>"Devolución"</strong>, el sistema solicita y vincula al proveedor seleccionado. Esto registra automáticamente la salida en el historial del proveedor.
+        </p>
+      </div>
+
+      <ul class="feature-list">
+        <li class="feature-item">
+          <div class="feature-text">
+            <h5>Banner Informativo de Modificación:</h5>
+            <p>Al editar un producto, se muestra un banner destacado que indica que cualquier cambio de existencias físicas de stock debe realizarse a través del apartado de Historial e Inserción de Notas.</p>
+          </div>
+        </li>
+        <li class="feature-item">
+          <div class="feature-text">
+            <h5>Estética Premium Unificada:</h5>
+            <p>El Historial de Notas del producto fue estilizado con colores de marca en degradé verde esmeralda y líneas divisoras de cuadrícula vertical para mejorar la legibilidad.</p>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <!-- SECCIÓN 4: PAGINACIÓN PREMIUM -->
+    <div class="section">
+      <h3 class="section-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+        4. Paginación Premium Responsiva Global
+      </h3>
+      <p class="paragraph">
+        Para agilizar la navegación y unificar el diseño visual, se migró el antiguo sistema de paginación plana a un **Paginador Numérico Premium** en las principales vistas del sistema:
+      </p>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Vistas Modificadas</th>
+              <th>Paginación Anterior</th>
+              <th>Nueva Paginación Premium</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Historial de Ventas</strong></td>
+              <td>Plana (Anterior / Siguiente)</td>
+              <td>Numérica responsiva con acceso directo (Primera/Última) + elipsis (...)</td>
+            </tr>
+            <tr>
+              <td><strong>Historial de Gastos</strong></td>
+              <td>Plana (Anterior / Siguiente)</td>
+              <td>Numérica responsiva con acceso directo (Primera/Última) + elipsis (...)</td>
+            </tr>
+            <tr>
+              <td><strong>Historial de Cajas</strong></td>
+              <td>Plana (Anterior / Siguiente)</td>
+              <td>Numérica responsiva con acceso directo (Primera/Última) + elipsis (...)</td>
+            </tr>
+            <tr>
+              <td><strong>Historial de Inventario Global</strong></td>
+              <td>Plana (30 registros)</td>
+              <td>Premium con reducción a 15 registros para mejor visualización</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="paragraph">
+        Esta mejora incluye un efecto inteligente de límite (<em>Auto-clamping</em>). Si la lista es filtrada en tiempo real mediante búsquedas o filtros de fecha y la cantidad de páginas disminuye, el sistema reajusta automáticamente la página activa para evitar desbordamientos visuales o listas en blanco.
+      </p>
+    </div>
+
+    <!-- BOTÓN DE IMPRESIÓN (Visible en Navegador, Invisible en el PDF guardado) -->
+    <button class="print-button" onclick="window.print()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+      GUARDAR REPORTE A PDF
+    </button>
+
+  </div>
+
+</body>
+</html>

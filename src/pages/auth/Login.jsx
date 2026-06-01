@@ -184,7 +184,7 @@ export default function Login() {
             <span className="text-white/90">El Grifo</span>
           </h1>
           <p className="text-green-100/80 text-base mt-5 font-medium tracking-wide">
-            Gestión inteligente para tu negocio V1.9
+            Bodega el grifo V2.0
           </p>
         </div>
       </div>

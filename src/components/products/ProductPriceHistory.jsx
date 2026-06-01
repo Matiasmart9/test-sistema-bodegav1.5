@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase/config';
-import { TrendingUp, TrendingDown, Minus, DollarSign, Loader2, History } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, Loader2, History } from 'lucide-react';
 import { formatDate as fmtDate, formatTime } from '../../utils/dateUtils';
 
 const g = (n) => `₲ ${Math.round(n || 0).toLocaleString('es-PY')}`;
@@ -72,7 +72,7 @@ export default function ProductPriceHistory({ productId }) {
         </div>
       ) : logs.length === 0 ? (
         <div className="text-center py-8 text-gray-400 text-sm">
-          <DollarSign size={28} className="mx-auto mb-2 opacity-20"/>
+          <History size={28} className="mx-auto mb-2 opacity-20"/>
           <p>Sin cambios de precio registrados aún.</p>
           <p className="text-xs mt-1">Los cambios se registran automáticamente al editar el producto.</p>
         </div>

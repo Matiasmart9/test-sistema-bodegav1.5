@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { X, Check, Search, UserPlus, User, Mail, Printer, AlertTriangle, MapPin, Hash, Phone } from 'lucide-react';
-import { collection, getDocs, addDoc, query, where } from 'firebase/firestore'; 
+import { collection, getDocs, addDoc, query, where, getDoc, doc } from 'firebase/firestore'; 
 import { db } from '../../firebase/config';
 import TicketInvoice from './TicketInvoice';
 import { formatGuaranies, parseGuaraniesStr } from '../../utils/moneyUtils';
+import { printTicketService } from '../../utils/printUtils';
 
 export default function PaymentModal({ total, cart, onClose, onProcessPayment, onFinalize }) {
   const [amountPaid, setAmountPaid] = useState('');
@@ -98,10 +99,10 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
       setLoading(false);
   };
 
-  // ── Impresión independiente por copia ────────────────────────────────────
-  // Abre una ventana nueva con el HTML del ticket ya renderizado + Tailwind CDN
-  // y dispara window.print() — cada ventana = un trabajo de impresión = un corte Epson
-  const printTicket = (footerLabel) => {
+  // ── Impresión unificada (Servidor local / Respaldo con navegador) ─────────
+  // Intenta imprimir original y copia silenciosamente mediante el servidor local.
+  // Si falla, abre la ventana con ambos tickets y hace el fallback con el navegador.
+  const printTicketFallback = (footerLabel) => {
     const ticketEl = document.getElementById('ticket-data');
     if (!ticketEl) return;
 
@@ -138,6 +139,38 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
       win.print();
       setTimeout(() => win.close(), 500);
     }, 1000);
+  };
+
+  const handlePrintBoth = async () => {
+    let storeData = {};
+    try {
+      const snap = await getDoc(doc(db, 'settings', 'general'));
+      if (snap.exists()) storeData = snap.data();
+    } catch (e) { /* usar defaults */ }
+
+    const tData = {
+      cart:             ticketData.items,
+      total:            ticketData.total,
+      amountPaid:       ticketData.amountReceived,
+      change:           ticketData.change,
+      paymentMethod:    ticketData.paymentMethod,
+      ticketId:         ticketData.ticketId,
+      date:             ticketData.date?.toISOString?.() || ticketData.date,
+      client:           ticketData.client,
+      cashierName:      ticketData.cashier,
+      subTotal:         ticketData.subTotal,
+      discountTotal:    ticketData.discountTotal,
+      appliedDiscounts: ticketData.appliedDiscounts,
+    };
+
+    const printed = await printTicketService(tData, storeData);
+    if (!printed) {
+      // Fallback
+      printTicketFallback('ORIGINAL — CLIENTE');
+      setTimeout(() => {
+        printTicketFallback('COPIA — TICKET');
+      }, 1500);
+    }
   };
 
   return (
@@ -443,14 +476,9 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
 
                       <div className="p-4 bg-white border-t border-gray-200 flex gap-2 shadow-up">
                           <button 
-                            onClick={() => printTicket('ORIGINAL — CLIENTE')} 
-                            className="flex-1 bg-gray-900 hover:bg-black text-white py-3 rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs">
-                              <Printer size={16} /> ORIG.
-                          </button>
-                          <button 
-                            onClick={() => printTicket('COPIA — TICKET')} 
-                            className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs">
-                              <Printer size={16} /> COPIA
+                            onClick={handlePrintBoth} 
+                            className="flex-[2] bg-gray-900 hover:bg-black text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-sm">
+                              <Printer size={18} /> IMPRIMIR TICKET
                           </button>
                           <button onClick={() => onFinalize(ticketData?.items)} className="flex-1 bg-green-100 text-green-700 hover:bg-green-200 rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs whitespace-nowrap">
                               <Check size={16} /> NUEVA VENTA

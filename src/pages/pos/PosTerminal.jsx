@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import {
   collection, getDocs, addDoc, query, where, updateDoc, doc,
-  limit, getDoc, increment, orderBy, runTransaction, writeBatch
+  limit, getDoc, increment, orderBy, runTransaction, writeBatch,
+  onSnapshot
 } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import {
@@ -18,6 +19,7 @@ import DiscountModal from './DiscountModal';
 import WeatherWidget from '../../components/ui/WeatherWidget';
 import { sileo } from 'sileo';
 import ConfirmModal from '../../components/ui/ConfirmModal';
+import { printTicketService } from '../../utils/printUtils';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER: genera el próximo ID de ticket usando transacción atómica en Firestore
@@ -117,66 +119,113 @@ export default function PosTerminal() {
   const [shiftSummary,  setShiftSummary]  = useState({ sales: 0, expenses: 0 });
 
   // ─── Carga de productos ──────────────────────────────────────────────────
-  const fetchProducts = async () => {
-    try {
-      const prodSnap = await getDocs(collection(db, 'products'));
-      const prodsData = prodSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const flat = [];
+  // ─── Carga de productos en tiempo real (Sincronización automática) ───────
+  useEffect(() => {
+    let unsubscribeProducts = () => {};
 
-      prodsData.forEach(p => {
-        const soldBy   = p.sold_by || 'unit';
-        const lowStock = p.low_stock ? parseFloat(p.low_stock) : 5;
+    const init = async () => {
+      // 1. Escuchar la colección de productos en tiempo real
+      unsubscribeProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
+        const prodsData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        const flat = [];
 
-        if (p.variants && p.variants.length > 0) {
-          p.variants.forEach((v, idx) => {
-            if (v.is_active) {
-              flat.push({
-                ...v,
-                id:           `${p.id}-${idx}`,
-                originalId:   p.id,
-                variantIndex: idx,
-                category:     p.category,
-                name:         `${p.name} / ${v.name}`,
-                isVariant:    true,
-                soldBy,
-                low_stock:    v.low_stock ? parseFloat(v.low_stock) : lowStock,
-              });
-            }
-          });
-        } else {
-          flat.push({
-            ...p,
-            originalId: p.id,
-            isVariant:  false,
-            soldBy,
-            stock:      p.current_stock || 0,
-            low_stock:  lowStock,
-          });
-        }
+        prodsData.forEach(p => {
+          const soldBy   = p.sold_by || 'unit';
+          const lowStock = p.low_stock ? parseFloat(p.low_stock) : 5;
+
+          if (p.variants && p.variants.length > 0) {
+            p.variants.forEach((v, idx) => {
+              if (v.is_active) {
+                flat.push({
+                  ...v,
+                  id:           `${p.id}-${idx}`,
+                  originalId:   p.id,
+                  variantIndex: idx,
+                  category:     p.category,
+                  name:         `${p.name} / ${v.name}`,
+                  isVariant:    true,
+                  soldBy,
+                  low_stock:    v.low_stock ? parseFloat(v.low_stock) : lowStock,
+                });
+              }
+            });
+          } else {
+            flat.push({
+              ...p,
+              originalId: p.id,
+              isVariant:  false,
+              soldBy,
+              stock:      p.current_stock || 0,
+              low_stock:  lowStock,
+            });
+          }
+        });
+
+        setProducts(flat);
+        setCategories(['Todas', ...new Set(prodsData.map(p => p.category).filter(Boolean))]);
+      }, (error) => {
+        console.error('Error onSnapshot productos:', error);
       });
 
-      setProducts(flat);
-      setCategories(['Todas', ...new Set(prodsData.map(p => p.category).filter(Boolean))]);
-    } catch (error) {
-      console.error('Error productos:', error);
-    }
-  };
-
-  useEffect(() => {
-    const init = async () => {
-      await fetchProducts();
+      // 2. Cargar el turno activo del cajero
       if (effectiveUser?.id) {
         try {
           const q        = query(collection(db, 'shifts'), where('userId', '==', effectiveUser.id), where('status', '==', 'open'), limit(1));
           const shiftSnap = await getDocs(q);
           if (!shiftSnap.empty) setCurrentShift({ id: shiftSnap.docs[0].id, ...shiftSnap.docs[0].data() });
-        } catch (error) { console.error(error); }
+        } catch (error) {
+          console.error(error);
+        }
       }
       setLoading(false);
       setCheckingShift(false);
     };
+
     init();
+
+    // Limpiar listener al desmontar o cambiar usuario
+    return () => {
+      unsubscribeProducts();
+    };
   }, [effectiveUser]);
+
+  // ─── Sincronizar el carrito cuando cambia el catálogo de productos ──────────
+  useEffect(() => {
+    if (products.length === 0 || cart.length === 0) return;
+    setCart(prev => {
+      let changed = false;
+      const updated = prev.map(item => {
+        const currentProd = products.find(p => p.id === item.id);
+        if (!currentProd) return item;
+
+        const stockDisponible = parseFloat(currentProd.stock || 0);
+        // Limitar la cantidad agregada al stock actual disponible para evitar inconsistencias
+        const cappedQty = Math.min(item.quantity, stockDisponible);
+
+        // Verificar si hubo cambios en los datos críticos del producto
+        if (
+          item.price !== currentProd.price ||
+          item.cost !== currentProd.cost ||
+          item.tax !== currentProd.tax ||
+          item.name !== currentProd.name ||
+          item.quantity !== cappedQty
+        ) {
+          changed = true;
+          return {
+            ...item,
+            name:     currentProd.name,
+            price:    currentProd.price,
+            cost:     currentProd.cost,
+            tax:      currentProd.tax,
+            quantity: cappedQty
+          };
+        }
+        return item;
+      });
+      // Retornar la misma referencia si no cambió nada para evitar bucles de renderizado
+      return changed ? updated : prev;
+    });
+  }, [products]);
 
   // ─── Anulación de ventas ─────────────────────────────────────────────────
   const fetchRecentSales = async () => {
@@ -226,50 +275,77 @@ export default function PosTerminal() {
     }
   };
 
-  const handleReprint = (sale, footerLabel) => {
+  const handleReprint = async (sale) => {
     // Reconstruir el objeto date si viene como Timestamp de Firestore
     const saleDate = sale.dateObj instanceof Date ? sale.dateObj
                    : sale.date?.toDate ? sale.date.toDate()
                    : new Date(sale.date);
 
-    // Renderizar el ticket en un div oculto temporalmente
-    const container = document.createElement('div');
-    container.style.cssText = 'position:fixed;left:-9999px;top:0;width:80mm;background:white;';
-    document.body.appendChild(container);
+    // Cargar config de tienda desde Firestore
+    let storeData = {};
+    try {
+      const snap = await getDoc(doc(db, 'settings', 'general'));
+      if (snap.exists()) storeData = snap.data();
+    } catch (e) { /* usar defaults */ }
 
-    // Importar ReactDOM dinámicamente para renderizar el TicketInvoice
-    import('react-dom/client').then(({ createRoot }) => {
-      import('./TicketInvoice').then(({ default: TicketInvoice }) => {
-        const root = createRoot(container);
-        root.render(
-          React.createElement(TicketInvoice, {
-            cart:              sale.items || [],
-            total:             sale.total,
-            amountPaid:        sale.amountReceived || sale.total,
-            change:            sale.change || 0,
-            paymentMethod:     sale.paymentMethod,
-            ticketId:          sale.ticketId,
-            date:              saleDate,
-            client:            sale.client,
-            cashierName:       sale.userName,
-            subTotal:          sale.subTotal,
-            discountTotal:     sale.discountTotal,
-            appliedDiscounts:  sale.appliedDiscounts,
-            copyLabel:         '__HIDE_FOOTER__',
-          })
-        );
+    const tData = {
+      cart:             sale.items || [],
+      total:            sale.total,
+      amountPaid:       sale.amountReceived || sale.total,
+      change:           sale.change || 0,
+      paymentMethod:    sale.paymentMethod,
+      ticketId:         sale.ticketId,
+      date:             saleDate.toISOString?.() || saleDate,
+      client:           sale.client,
+      cashierName:      sale.userName,
+      subTotal:         sale.subTotal,
+      discountTotal:    sale.discountTotal,
+      appliedDiscounts: sale.appliedDiscounts,
+    };
 
-        // Esperar render (~800ms) luego abrir ventana de impresión
-        setTimeout(() => {
-          const win = window.open('', '_blank', 'width=350,height=650,toolbar=no,menubar=no,scrollbars=no');
-          if (!win) {
-            sileo.warning({ title: 'Habilitá los pop-ups para este sitio en Chrome.' });
-            root.unmount();
-            document.body.removeChild(container);
-            return;
-          }
+    const printed = await printTicketService(tData, storeData);
+    if (printed) return;
 
-          win.document.write(`<!DOCTYPE html>
+    // Fallback: usar navegador si el servidor local está desconectado
+    const runPrintJob = (footerLabel) => {
+      // Renderizar el ticket en un div oculto temporalmente
+      const container = document.createElement('div');
+      container.style.cssText = 'position:fixed;left:-9999px;top:0;width:80mm;background:white;';
+      document.body.appendChild(container);
+
+      // Importar ReactDOM dinámicamente para renderizar el TicketInvoice
+      import('react-dom/client').then(({ createRoot }) => {
+        import('./TicketInvoice').then(({ default: TicketInvoice }) => {
+          const root = createRoot(container);
+          root.render(
+            React.createElement(TicketInvoice, {
+              cart:              sale.items || [],
+              total:             sale.total,
+              amountPaid:        sale.amountReceived || sale.total,
+              change:            sale.change || 0,
+              paymentMethod:     sale.paymentMethod,
+              ticketId:          sale.ticketId,
+              date:              saleDate,
+              client:            sale.client,
+              cashierName:       sale.userName,
+              subTotal:          sale.subTotal,
+              discountTotal:     sale.discountTotal,
+              appliedDiscounts:  sale.appliedDiscounts,
+              copyLabel:         '__HIDE_FOOTER__',
+            })
+          );
+
+          // Esperar render (~800ms) luego abrir ventana de impresión
+          setTimeout(() => {
+            const win = window.open('', '_blank', 'width=350,height=650,toolbar=no,menubar=no,scrollbars=no');
+            if (!win) {
+              sileo.warning({ title: 'Habilitá los pop-ups para este sitio en Chrome.' });
+              root.unmount();
+              document.body.removeChild(container);
+              return;
+            }
+
+            win.document.write(`<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8"/>
@@ -291,18 +367,24 @@ export default function PosTerminal() {
   <div class="footer-label">${footerLabel}</div>
 </body>
 </html>`);
-          win.document.close();
-          setTimeout(() => {
-            win.focus();
-            win.print();
-            setTimeout(() => win.close(), 500);
-          }, 1000);
+            win.document.close();
+            setTimeout(() => {
+              win.focus();
+              win.print();
+              setTimeout(() => win.close(), 500);
+            }, 1000);
 
-          root.unmount();
-          document.body.removeChild(container);
-        }, 800);
+            root.unmount();
+            document.body.removeChild(container);
+          }, 800);
+        });
       });
-    });
+    };
+
+    runPrintJob('ORIGINAL — CLIENTE');
+    setTimeout(() => {
+      runPrintJob('COPIA — TICKET');
+    }, 2000);
   };
 
   const handleVoidSale = async (sale) => {
@@ -926,16 +1008,10 @@ export default function PosTerminal() {
                       </div>
                       <div className="flex gap-2">
                         <button
-                          onClick={() => handleReprint(sale, '★ ORIGINAL — CLIENTE ★')}
-                          className="flex-1 flex items-center justify-center gap-1.5 bg-gray-900 hover:bg-black text-white text-xs font-bold py-2 rounded-lg transition-colors"
+                          onClick={() => handleReprint(sale)}
+                          className="flex-1 flex items-center justify-center gap-2 bg-gray-900 hover:bg-black text-white text-xs font-bold py-2.5 rounded-lg transition-colors"
                         >
-                          <Printer size={13}/> Original
-                        </button>
-                        <button
-                          onClick={() => handleReprint(sale, '✦ COPIA — TIENDA ✦')}
-                          className="flex-1 flex items-center justify-center gap-1.5 bg-gray-500 hover:bg-gray-600 text-white text-xs font-bold py-2 rounded-lg transition-colors"
-                        >
-                          <Printer size={13}/> Copia
+                          <Printer size={15}/> Reimprimir Ticket
                         </button>
                       </div>
                     </div>

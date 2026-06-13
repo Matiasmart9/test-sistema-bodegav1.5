@@ -24,9 +24,10 @@ import {
   Truck,
   Monitor,
   Sparkles,
+  X,
 } from 'lucide-react';
 
-const Sidebar = () => {
+const Sidebar = ({ isOpen, onClose }) => {
   const location = useLocation();
   const { userData, logout } = useAuth();
   const [expandedMenus, setExpandedMenus] = useState({});
@@ -84,16 +85,26 @@ const Sidebar = () => {
   ];
 
   return (
-    <aside className="w-64 bg-gradient-to-b from-white to-gray-50/70 h-screen border-r border-gray-100 flex flex-col fixed left-0 top-0 z-50 shadow-xs select-none">
+    <aside className={`w-64 bg-gradient-to-b from-white to-gray-50/70 h-screen border-r border-gray-100 flex flex-col fixed left-0 top-0 z-50 shadow-xs select-none transition-transform duration-300 md:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
 
       {/* HEADER PREMIUM */}
-      <div className="h-16 flex items-center gap-2.5 px-4 border-b border-gray-100 bg-white">
-        <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center text-white shadow-md shadow-green-100 shrink-0 animate-pulse">
-          <Sparkles size={16} className="text-white fill-white/20" />
+      <div className="h-16 flex items-center justify-between px-4 border-b border-gray-100 bg-white">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center text-white shadow-md shadow-green-100 shrink-0 animate-pulse">
+            <Sparkles size={16} className="text-white fill-white/20" />
+          </div>
+          <span className="text-lg font-black tracking-tight text-gray-800">
+            Bodega <span className="bg-gradient-to-r from-emerald-600 to-green-500 bg-clip-text text-transparent">el Grifo</span>
+          </span>
         </div>
-        <span className="text-lg font-black tracking-tight text-gray-800">
-          Bodega <span className="bg-gradient-to-r from-emerald-600 to-green-500 bg-clip-text text-transparent">el Grifo</span>
-        </span>
+        {/* Botón de cerrar visible solo en mobile */}
+        <button 
+          onClick={onClose}
+          className="md:hidden p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+          aria-label="Cerrar barra lateral"
+        >
+          <X size={18} />
+        </button>
       </div>
 
       {/* WIDGET CLIMA */}
@@ -129,7 +140,7 @@ const Sidebar = () => {
                     <span className="text-sm tracking-wide">{item.label}</span>
                   </div>
                 ) : (
-                  <Link to={item.path} className="flex items-center gap-3 w-full">
+                  <Link to={item.path} className="flex items-center gap-3 w-full" onClick={onClose}>
                     <span className={`transition-colors duration-200 ${isActive ? 'text-emerald-600' : 'text-gray-400 group-hover:text-emerald-600'}`}>
                       {item.icon}
                     </span>
@@ -153,6 +164,7 @@ const Sidebar = () => {
                       <Link
                         key={sub.path}
                         to={sub.path}
+                        onClick={onClose}
                         className={`py-2 px-3 text-xs rounded-md transition-all duration-200 flex items-center gap-2.5
                           ${isSubActive
                             ? 'text-emerald-800 bg-gradient-to-r from-emerald-50 to-green-50/50 font-bold border-l-2 border-emerald-500 pl-4 shadow-xs'
@@ -198,7 +210,7 @@ const Sidebar = () => {
         </div>
 
         <button
-          onClick={logout}
+          onClick={() => { logout(); onClose(); }}
           className="w-full flex items-center justify-center gap-2 px-3 py-2.5 text-sm
                      text-red-600 bg-white border border-red-100 rounded-lg
                      hover:bg-red-600 hover:text-white hover:border-red-600 transition-all shadow-xs font-bold"

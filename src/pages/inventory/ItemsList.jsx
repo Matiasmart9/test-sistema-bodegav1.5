@@ -259,7 +259,7 @@ export default function ItemsList() {
                   <thead className="bg-primary text-white text-xs uppercase font-bold tracking-wider shadow-sm">
                     <tr>
                       <th className="w-10 px-4 py-4 border-b border-green-600 rounded-tl-lg"></th>
-                      <th className="px-2 py-4 w-12 text-center border-b border-green-600">
+                      <th className="px-2 py-4 w-12 text-center border-b border-green-600 hidden md:table-cell">
                         <button
                           onClick={() => {
                             setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
@@ -275,11 +275,11 @@ export default function ItemsList() {
                         </button>
                       </th>
                       <th className="px-6 py-4 border-b border-green-600">Producto</th>
-                      <th className="px-6 py-4 border-b border-green-600">Categoría</th>
+                      <th className="px-6 py-4 border-b border-green-600 hidden sm:table-cell">Categoría</th>
                       <th className="px-6 py-4 border-b border-green-600">Precio</th>
-                      <th className="px-6 py-4 border-b border-green-600">Coste</th> 
+                      <th className="px-6 py-4 border-b border-green-600 hidden md:table-cell">Coste</th> 
                       <th className="px-6 py-4 border-b border-green-600">Stock</th>
-                      <th className="px-6 py-4 text-center border-b border-green-600">Stock Min.</th>
+                      <th className="px-6 py-4 text-center border-b border-green-600 hidden sm:table-cell">Stock Min.</th>
                       <th className="px-6 py-4 text-right border-b border-green-600 rounded-tr-lg">Acciones</th>
                     </tr>
                   </thead>
@@ -301,7 +301,7 @@ export default function ItemsList() {
                                 </button>
                               )}
                             </td>
-                            <td className="px-2 py-4 text-center">
+                            <td className="px-2 py-4 text-center hidden md:table-cell">
                               <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-green-50 text-primary font-extrabold text-xs border border-green-100 shadow-xs">
                                 {product.name.charAt(0).toUpperCase()}
                               </span>
@@ -318,17 +318,17 @@ export default function ItemsList() {
                                 </div>
                               </div>
                             </td>
-                            <td className="px-6 py-4"><span className="px-2 py-1 bg-gray-100 text-xs rounded-full font-medium text-gray-600">{product.category}</span></td>
+                            <td className="px-6 py-4 hidden sm:table-cell"><span className="px-2 py-1 bg-gray-100 text-xs rounded-full font-medium text-gray-600">{product.category}</span></td>
                             <td className="px-6 py-4 font-medium text-sm text-gray-600">
                               {hasVariants ? <span className="italic">Varía</span> : `₲ ${product.price?.toLocaleString()}`}
                             </td>
-                            <td className="px-6 py-4 font-medium text-sm text-gray-500">
+                            <td className="px-6 py-4 font-medium text-sm text-gray-500 hidden md:table-cell">
                               {hasVariants ? '-' : `₲ ${(product.cost || 0).toLocaleString()}`}
                             </td>
                             <td className="px-6 py-4 text-sm">
                                 {calculateTotalStock(product)}
                             </td>
-                            <td className="px-6 py-4 text-center text-sm text-gray-500">
+                            <td className="px-6 py-4 text-center text-sm text-gray-500 hidden sm:table-cell">
                                 {hasVariants ? '-' : (product.low_stock || 0)}
                             </td>
                             <td className="px-6 py-4 text-right">
@@ -351,38 +351,40 @@ export default function ItemsList() {
 
                           {isExpanded && hasVariants && (
                           <tr className="bg-gray-50/50">
-                              <td colSpan="9" className="px-4 py-4 md:px-10">
+                              <td colSpan="9" className="px-2 py-4 md:px-10">
                               <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm animate-fadeIn">
-                                  <table className="w-full text-sm">
-                                      <thead className="bg-gray-50 text-xs text-gray-500 uppercase font-semibold border-b border-gray-100">
-                                          <tr>
-                                              <th className="px-6 py-3 text-left">Variante</th>
-                                              <th className="px-6 py-3">Precio</th>
-                                              <th className="px-6 py-3">Coste</th>
-                                              <th className="px-6 py-3 w-32">Stock</th>
-                                              <th className="px-6 py-3 w-32 text-orange-600">Inv. Bajo</th>
-                                              <th className="px-6 py-3 w-40">SKU</th>
-                                          </tr>
-                                      </thead>
-                                      <tbody className="divide-y divide-gray-100">
-                                          {product.variants.map((variant, idx) => (
-                                              <tr key={idx} className="hover:bg-gray-50">
-                                                  <td className="px-6 py-3 font-medium text-gray-700">{variant.name}</td>
-                                                  <td className="px-6 py-3">₲ {variant.price?.toLocaleString()}</td>
-                                                  <td className="px-6 py-3 text-gray-500">₲ {variant.cost?.toLocaleString()}</td>
-                                                  
-                                                  <td className={`px-6 py-3 font-bold ${
-                                                      (variant.stock <= 0) ? 'text-red-600 bg-red-50' : 
-                                                      (variant.stock <= (variant.low_stock || 5)) ? 'text-red-500' : 'text-green-600'
-                                                  }`}>
-                                                      {variant.stock}
-                                                  </td>
-                                                  <td className="px-6 py-3 text-orange-600 font-medium">{variant.low_stock}</td>
-                                                  <td className="px-6 py-3 text-xs text-gray-400">{variant.sku}</td>
-                                              </tr>
-                                          ))}
-                                      </tbody>
-                                  </table>
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-gray-50 text-xs text-gray-500 uppercase font-semibold border-b border-gray-100">
+                                            <tr>
+                                                <th className="px-4 py-3 text-left">Variante</th>
+                                                <th className="px-4 py-3 text-right">Precio</th>
+                                                <th className="px-4 py-3 text-right hidden md:table-cell">Coste</th>
+                                                <th className="px-4 py-3 text-center w-24">Stock</th>
+                                                <th className="px-4 py-3 text-center w-24 text-orange-600 hidden sm:table-cell">Inv. Bajo</th>
+                                                <th className="px-4 py-3 text-right w-32 hidden md:table-cell">SKU</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {product.variants.map((variant, idx) => (
+                                                <tr key={idx} className="hover:bg-gray-50">
+                                                    <td className="px-4 py-3 font-medium text-gray-700">{variant.name}</td>
+                                                    <td className="px-4 py-3 text-right">₲ {variant.price?.toLocaleString()}</td>
+                                                    <td className="px-4 py-3 text-right text-gray-500 hidden md:table-cell">₲ {variant.cost?.toLocaleString()}</td>
+                                                    
+                                                    <td className={`px-4 py-3 text-center font-bold ${
+                                                        (variant.stock <= 0) ? 'text-red-600 bg-red-50' : 
+                                                        (variant.stock <= (variant.low_stock || 5)) ? 'text-red-500' : 'text-green-600'
+                                                    }`}>
+                                                        {variant.stock}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-center text-orange-600 font-medium hidden sm:table-cell">{variant.low_stock}</td>
+                                                    <td className="px-4 py-3 text-right text-xs text-gray-400 hidden md:table-cell">{variant.sku}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                  </div>
                               </div>
                               </td>
                           </tr>
@@ -403,7 +405,7 @@ export default function ItemsList() {
                 </p>
 
                 {/* Botones de página */}
-                <div className="flex items-center gap-1">
+                <div className="flex items-center justify-center gap-1 flex-wrap">
                   {/* Primera página */}
                   <button
                     onClick={() => setCurrentPage(1)}

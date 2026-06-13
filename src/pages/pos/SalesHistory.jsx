@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import {
   collection, query, where, getDocs, doc,
-  updateDoc, increment, addDoc
+  updateDoc, increment, addDoc, getDoc
 } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import {
@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import TicketInvoice from './TicketInvoice';
 import * as XLSX from 'xlsx';
+import { printTicketService } from '../../utils/printUtils';
 import { sileo } from 'sileo';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import { todayStrPY, formatDate as fmtDate, formatTime } from '../../utils/dateUtils';
@@ -448,6 +449,77 @@ export default function SalesHistory() {
   const indexOfFirst = indexOfLast - itemsPerPage;
   const currentItems = filteredHistory.slice(indexOfFirst, indexOfLast);
   const totalPages   = Math.ceil(filteredHistory.length / itemsPerPage);
+
+  const handlePrint = async () => {
+    if (!selectedSale) return;
+
+    let storeData = {};
+    try {
+      const snap = await getDoc(doc(db, 'settings', 'general'));
+      if (snap.exists()) storeData = snap.data();
+    } catch (e) { /* usar defaults */ }
+
+    const tData = {
+      cart:             selectedSale.items || [],
+      total:            selectedSale.total,
+      amountPaid:       selectedSale.amountReceived || selectedSale.total,
+      change:           selectedSale.change || 0,
+      paymentMethod:    selectedSale.paymentMethod,
+      ticketId:         selectedSale.ticketId,
+      date:             selectedSale.date?.toISOString?.() || selectedSale.date,
+      client:           selectedSale.client,
+      cashierName:      selectedSale.userName,
+      subTotal:         selectedSale.subTotal,
+      discountTotal:    selectedSale.discountTotal,
+      appliedDiscounts: selectedSale.appliedDiscounts,
+    };
+
+    const printed = await printTicketService(tData, storeData);
+    if (!printed) {
+      // Fallback
+      const printJob = (footerLabel) => {
+        const ticketEl = document.getElementById('printable-ticket-content');
+        if (!ticketEl) return;
+
+        const win = window.open('', '_blank', 'width=350,height=650,toolbar=no,menubar=no,scrollbars=no');
+        if (!win) { alert('Habilitá los pop-ups para este sitio.'); return; }
+
+        win.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8"/>
+  <script src="https://cdn.tailwindcss.com"><\/script>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:'Courier New',monospace; width:80mm; background:white; }
+    @page { size:80mm auto; margin:0; }
+    .footer-label {
+      text-align:center; font-weight:900; font-size:12px;
+      text-transform:uppercase; letter-spacing:2px;
+      border-top:1px dashed #555; padding-top:6px;
+      margin:8px 8px 10px; font-family:'Courier New',monospace;
+    }
+  </style>
+</head>
+<body>
+  ${ticketEl.innerHTML}
+  <div class="footer-label">${footerLabel}</div>
+</body>
+</html>`);
+        win.document.close();
+        setTimeout(() => {
+          win.focus();
+          win.print();
+          setTimeout(() => win.close(), 500);
+        }, 1000);
+      };
+
+      printJob('ORIGINAL — CLIENTE');
+      setTimeout(() => {
+        printJob('COPIA — TICKET');
+      }, 1500);
+    }
+  };
 
   useEffect(() => {
     if (totalPages > 0 && currentPage > totalPages) {
@@ -937,7 +1009,7 @@ export default function SalesHistory() {
             </div>
             <div className="p-4 bg-white border-t flex gap-2">
               <button
-                onClick={() => window.print()}
+                onClick={handlePrint}
                 className="flex-1 bg-black text-white py-3 rounded-lg font-bold
                            flex items-center justify-center gap-2 hover:bg-gray-800 transition-colors"
               >
@@ -950,7 +1022,7 @@ export default function SalesHistory() {
 
       {/* Área de impresión oculta */}
       {selectedSale && (
-        <div id="printable-ticket" className="hidden print:block">
+        <div id="printable-ticket-content" style={{position:'absolute',left:'-9999px',top:0,width:'80mm',background:'white'}}>
           <TicketInvoice
             cart={selectedSale.items}
             total={selectedSale.total}
@@ -964,6 +1036,7 @@ export default function SalesHistory() {
             subTotal={selectedSale.subTotal}
             discountTotal={selectedSale.discountTotal}
             appliedDiscounts={selectedSale.appliedDiscounts}
+            copyLabel="__HIDE_FOOTER__"
           />
         </div>
       )}

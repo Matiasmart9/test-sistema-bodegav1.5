@@ -6,6 +6,7 @@ import { db } from '../../firebase/config';
 import { TrendingDown, Calendar, Search, FileSpreadsheet, Loader2, User, XCircle, ChevronLeft, ChevronRight, Filter, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { todayStrPY, formatDate as fmtDate, formatTime } from '../../utils/dateUtils';
+import ConfirmModal from '../../components/ui/ConfirmModal';
 
 export default function ExpensesHistory() {
   const { userData } = useAuth();

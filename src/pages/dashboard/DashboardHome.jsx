@@ -250,7 +250,7 @@ export default function DashboardHome() {
                 <div>
                     <div className="flex items-center gap-2 mb-1.5">
                         <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border border-emerald-200">
-                            v2.1 Bodega el Grifo
+                            v2.2 Bodega el Grifo
                         </span>
                     </div>
                     <h1 className="text-3xl font-black text-slate-800 tracking-tight">Panel de Control</h1>

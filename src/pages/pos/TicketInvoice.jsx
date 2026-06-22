@@ -67,19 +67,28 @@ export default function TicketInvoice({
       </div>
 
       {/* INFO */}
-      <div className="mb-3 space-y-1 font-medium">
-        <div className="flex justify-between">
-          <span>FECHA:</span>
-          <span>{date.toLocaleDateString()} {date.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+      <div className="mb-3 space-y-0.5 font-medium text-[11px] text-left">
+        <div>
+          <span className="font-bold">FECHA: </span>
+          <span>{date.toLocaleDateString()} {date.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', hour12: false})}</span>
         </div>
-        <div className="flex justify-between"><span>TICKET:</span><span>#{ticketId}</span></div>
-        <div className="flex justify-between"><span>CAJERO:</span><span className="uppercase">{cashierName || 'SISTEMA'}</span></div>
-        <div className="border-b border-dotted border-gray-400 my-1"></div>
-        <div className="flex justify-between">
-          <span>CLIENTE:</span>
-          <span className="font-bold text-right max-w-[150px] truncate uppercase">{clientName}</span>
+        <div>
+          <span className="font-bold">TICKET: </span>
+          <span>#{ticketId}</span>
         </div>
-        <div className="flex justify-between"><span>RUC/CI:</span><span>{clientRuc}</span></div>
+        <div>
+          <span className="font-bold">CAJERO: </span>
+          <span className="uppercase">{cashierName || 'SISTEMA'}</span>
+        </div>
+        <div className="border-b border-dotted border-gray-400 my-1.5"></div>
+        <div>
+          <span className="font-bold">CLIENTE: </span>
+          <span className="font-bold uppercase">{clientName}</span>
+        </div>
+        <div>
+          <span className="font-bold">RUC/CI: </span>
+          <span>{clientRuc}</span>
+        </div>
       </div>
 
       <div className="border-b-2 border-dashed border-gray-800 my-3"></div>

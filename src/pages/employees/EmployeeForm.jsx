@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { collection, addDoc, updateDoc, doc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
-import { User, Mail, Shield, Save, ArrowLeft, Loader2, Lock, Eye, EyeOff, TrendingDown } from 'lucide-react';
+import { User, Mail, Shield, Save, ArrowLeft, Loader2, Lock, Eye, EyeOff, TrendingDown, ClipboardList, ClipboardCheck } from 'lucide-react';
 
 export default function EmployeeForm() {
   const navigate = useNavigate();
@@ -19,7 +19,9 @@ export default function EmployeeForm() {
     email: '',
     role: 'cashier',
     password: '',
-    canRegisterExpenses: false // <--- NUEVO CAMPO DE PERMISO
+    canRegisterExpenses: false, // <--- NUEVO CAMPO DE PERMISO
+    canManageInventorySummarized: false,
+    canCheckCashierInventory: false
   });
 
   // CARGAR DATOS
@@ -34,7 +36,9 @@ export default function EmployeeForm() {
             setFormData({
                 ...data,
                 password: data.password || data.pin || '',
-                canRegisterExpenses: data.canRegisterExpenses || false // Cargar el permiso existente o false
+                canRegisterExpenses: data.canRegisterExpenses || false, // Cargar el permiso existente o false
+                canManageInventorySummarized: data.canManageInventorySummarized || false,
+                canCheckCashierInventory: data.canCheckCashierInventory || false
             });
           } else {
             sileo.error({ title: 'Empleado no encontrado.' });
@@ -53,7 +57,9 @@ export default function EmployeeForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (!formData.name || !formData.password) return sileo.warning({ title: "Nombre y Contraseña son obligatorios" });
+    if (!formData.name || !formData.email || !formData.password) {
+      return sileo.warning({ title: "Nombre, Correo y Contraseña son obligatorios" });
+    }
     if (formData.password.length < 4) return sileo.warning({ title: 'La contraseña debe tener al menos 4 caracteres.' });
 
     setLoading(true);
@@ -64,7 +70,9 @@ export default function EmployeeForm() {
           role: formData.role,
           password: formData.password,
           pin: null,
-          canRegisterExpenses: formData.canRegisterExpenses // Guardamos el permiso
+          canRegisterExpenses: formData.canRegisterExpenses, // Guardamos el permiso
+          canManageInventorySummarized: formData.canManageInventorySummarized || false,
+          canCheckCashierInventory: formData.canCheckCashierInventory || false
       };
 
       if (isEditMode) {
@@ -118,9 +126,10 @@ export default function EmployeeForm() {
             </div>
 
             <div className="space-y-2">
-                <label className="text-sm font-bold text-gray-700 flex items-center gap-2"><Mail size={16}/> Correo (Opcional)</label>
+                <label className="text-sm font-bold text-gray-700 flex items-center gap-2"><Mail size={16}/> Correo</label>
                 <input 
                     type="email" 
+                    required
                     value={formData.email}
                     onChange={e => setFormData({...formData, email: e.target.value})}
                     className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:border-primary transition-all"
@@ -166,8 +175,8 @@ export default function EmployeeForm() {
             {/* --- SECCIÓN PERMISOS ESPECIALES (NUEVO) --- */}
             {/* Solo mostramos esto si el rol es Cajero, porque el Admin tiene todo permitido */}
             {formData.role === 'cashier' && (
-                <div className="pt-4 border-t border-gray-100 animate-fadeIn">
-                    <label className="text-sm font-bold text-gray-700 mb-3 block">Permisos Adicionales</label>
+                <div className="pt-4 border-t border-gray-100 animate-fadeIn space-y-4">
+                    <label className="text-sm font-bold text-gray-700 block">Permisos Adicionales</label>
                     
                     {/* SWITCH VISUAL PARA REGISTRO DE EGRESOS */}
                     <div 
@@ -187,6 +196,48 @@ export default function EmployeeForm() {
                         {/* TOGGLE SWITCH */}
                         <div className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 ${formData.canRegisterExpenses ? 'bg-green-500' : 'bg-gray-300'}`}>
                             <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${formData.canRegisterExpenses ? 'translate-x-6' : 'translate-x-0'}`}></div>
+                        </div>
+                    </div>
+
+                    {/* SWITCH VISUAL PARA INVENTARIO RESUMIDO */}
+                    <div 
+                        className={`flex items-center justify-between p-4 border rounded-xl cursor-pointer transition-all ${formData.canManageInventorySummarized ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50 hover:border-gray-300'}`} 
+                        onClick={() => setFormData({...formData, canManageInventorySummarized: !formData.canManageInventorySummarized})}
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-lg ${formData.canManageInventorySummarized ? 'bg-white text-green-600 shadow-sm' : 'bg-gray-200 text-gray-500'}`}>
+                                <ClipboardList size={20} />
+                            </div>
+                            <div>
+                                <p className={`font-bold text-sm ${formData.canManageInventorySummarized ? 'text-green-800' : 'text-gray-700'}`}>Habilitar Inventario Resumido</p>
+                                <p className="text-xs text-gray-500">Permite ver y editar stock de productos de manera resumida.</p>
+                            </div>
+                        </div>
+                        
+                        {/* TOGGLE SWITCH */}
+                        <div className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 ${formData.canManageInventorySummarized ? 'bg-green-500' : 'bg-gray-300'}`}>
+                            <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${formData.canManageInventorySummarized ? 'translate-x-6' : 'translate-x-0'}`}></div>
+                        </div>
+                    </div>
+
+                    {/* SWITCH VISUAL PARA INVENTARIO CAJERO */}
+                    <div 
+                        className={`flex items-center justify-between p-4 border rounded-xl cursor-pointer transition-all ${formData.canCheckCashierInventory ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50 hover:border-gray-300'}`} 
+                        onClick={() => setFormData({...formData, canCheckCashierInventory: !formData.canCheckCashierInventory})}
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-lg ${formData.canCheckCashierInventory ? 'bg-white text-green-600 shadow-sm' : 'bg-gray-200 text-gray-500'}`}>
+                                <ClipboardCheck size={20} />
+                            </div>
+                            <div>
+                                <p className={`font-bold text-sm ${formData.canCheckCashierInventory ? 'text-green-800' : 'text-gray-700'}`}>Habilitar Inventario Cajero</p>
+                                <p className="text-xs text-gray-500">Permite al cajero realizar el cruzamiento semanal de stock físico en el local.</p>
+                            </div>
+                        </div>
+                        
+                        {/* TOGGLE SWITCH */}
+                        <div className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 ${formData.canCheckCashierInventory ? 'bg-green-500' : 'bg-gray-300'}`}>
+                            <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${formData.canCheckCashierInventory ? 'translate-x-6' : 'translate-x-0'}`}></div>
                         </div>
                     </div>
                 </div>

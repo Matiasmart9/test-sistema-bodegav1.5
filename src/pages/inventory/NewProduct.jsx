@@ -16,6 +16,7 @@ export default function NewProduct() {
   const location = useLocation();
   const returnPage = location.state?.page || 1;
   const { userData } = useAuth();
+  const isSummarized = userData?.role === 'cashier' && userData?.canManageInventorySummarized;
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(!!id);
 
@@ -181,7 +182,7 @@ export default function NewProduct() {
   if (initialLoading) return <div className="p-8 text-center">Cargando producto...</div>;
 
   return (
-    <div className="max-w-4xl mx-auto pb-24">
+    <div className="max-w-6xl mx-auto pb-24 px-4">
       <div className="flex items-center gap-4 mb-6">
         <button type="button" onClick={() => navigate('/productos', { state: { page: returnPage } })} className="p-2 hover:bg-gray-100 rounded-full">
           <ArrowLeft size={24} className="text-gray-600" />
@@ -190,96 +191,106 @@ export default function NewProduct() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-            <h3 className="text-lg font-bold text-gray-800 mb-4">Información General</h3>
-            {id && (
-              <div className="mb-6 bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg flex items-start gap-3 shadow-xs">
-                <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={18} />
-                <div className="text-xs text-amber-800 leading-relaxed">
-                  <p className="font-bold uppercase tracking-wide text-[10px] text-amber-700 mb-0.5">Aviso de Modificación</p>
-                  Para modificar este producto, debe realizarlo desde el apartado <strong className="font-black">Historial y Notas</strong> que se encuentra más abajo haciendo clic en el botón <strong className="font-black">AGREGAR NOTA / AJUSTE</strong>.
+        {!isSummarized && (
+          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
+              <h3 className="text-lg font-bold text-gray-800 mb-4">Información General</h3>
+              {id && (
+                <div className="mb-6 bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg flex items-start gap-3 shadow-xs">
+                  <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={18} />
+                  <div className="text-xs text-amber-800 leading-relaxed">
+                    <p className="font-bold uppercase tracking-wide text-[10px] text-amber-700 mb-0.5">Aviso de Modificación</p>
+                    Para modificar este producto, debe realizarlo desde el apartado <strong className="font-black">Historial y Notas</strong> que se encuentra más abajo haciendo clic en el botón <strong className="font-black">AGREGAR NOTA / AJUSTE</strong>.
+                  </div>
                 </div>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="md:col-span-2">
+                      <label className="block text-sm font-bold text-gray-700 mb-1">Nombre del Producto</label>
+                      <input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary" placeholder="Ej: Stella Artois" required />
+                  </div>
+
+                  {/* --- SELECCIÓN DE CATEGORÍA --- */}
+                  <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">Categoría <span className="text-red-500">*</span></label>
+                      <div className="flex gap-2">
+                          {isNewCategory ? (
+                              <input 
+                                  type="text" 
+                                  name="category" 
+                                  value={formData.category} 
+                                  onChange={handleChange}
+                                  placeholder="Escriba la nueva categoría..."
+                                  className="w-full px-4 py-2 border-2 border-primary/30 rounded-lg focus:outline-none focus:border-primary bg-blue-50/20"
+                                  autoFocus
+                                  required
+                              />
+                          ) : (
+                              <select 
+                                  name="category" 
+                                  value={formData.category} 
+                                  onChange={handleChange} 
+                                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary bg-white"
+                                  required
+                              >
+                                  <option value="">-- Seleccione --</option>
+                                  {categoriesList.map(cat => (
+                                      <option key={cat} value={cat}>{cat}</option>
+                                  ))}
+                              </select>
+                          )}
+                          
+                          <button 
+                              type="button" 
+                              onClick={() => {
+                                  // Si cambia a modo manual, limpiamos para obligar a escribir
+                                  if(!isNewCategory) setFormData(prev => ({ ...prev, category: '' }));
+                                  setIsNewCategory(!isNewCategory);
+                              }}
+                              className="p-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 border border-gray-200 transition-colors"
+                              title={isNewCategory ? "Seleccionar de lista" : "Crear nueva categoría"}
+                          >
+                              {isNewCategory ? <RotateCcw size={20}/> : <Plus size={20}/>}
+                          </button>
+                      </div>
+                      {/* Mensaje de ayuda */}
+                      {categoriesList.length === 0 && isNewCategory && (
+                          <p className="text-xs text-orange-500 mt-1">No hay categorías registradas. Cree la primera aquí.</p>
+                      )}
+                  </div>
+
+                  <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">Se vende por</label>
+                      <select name="sold_by" value={formData.sold_by} onChange={handleChange} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary bg-white">
+                          <option value="unit">Unidad (u.)</option>
+                          <option value="weight">Peso (KG)</option>
+                      </select>
+                  </div>
+
+                  <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">Código SKU / Barras</label>
+                      <input type="text" name="sku" value={formData.sku} onChange={handleChange} onKeyDown={handleKeyDown} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary" />
+                  </div>
               </div>
-            )}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="md:col-span-2">
-                    <label className="block text-sm font-bold text-gray-700 mb-1">Nombre del Producto</label>
-                    <input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary" placeholder="Ej: Stella Artois" required />
-                </div>
+          </div>
+        )}
 
-                {/* --- SELECCIÓN DE CATEGORÍA --- */}
-                <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1">Categoría <span className="text-red-500">*</span></label>
-                    <div className="flex gap-2">
-                        {isNewCategory ? (
-                            <input 
-                                type="text" 
-                                name="category" 
-                                value={formData.category} 
-                                onChange={handleChange}
-                                placeholder="Escriba la nueva categoría..."
-                                className="w-full px-4 py-2 border-2 border-primary/30 rounded-lg focus:outline-none focus:border-primary bg-blue-50/20"
-                                autoFocus
-                                required
-                            />
-                        ) : (
-                            <select 
-                                name="category" 
-                                value={formData.category} 
-                                onChange={handleChange} 
-                                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary bg-white"
-                                required
-                            >
-                                <option value="">-- Seleccione --</option>
-                                {categoriesList.map(cat => (
-                                    <option key={cat} value={cat}>{cat}</option>
-                                ))}
-                            </select>
-                        )}
-                        
-                        <button 
-                            type="button" 
-                            onClick={() => {
-                                // Si cambia a modo manual, limpiamos para obligar a escribir
-                                if(!isNewCategory) setFormData(prev => ({ ...prev, category: '' }));
-                                setIsNewCategory(!isNewCategory);
-                            }}
-                            className="p-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 border border-gray-200 transition-colors"
-                            title={isNewCategory ? "Seleccionar de lista" : "Crear nueva categoría"}
-                        >
-                            {isNewCategory ? <RotateCcw size={20}/> : <Plus size={20}/>}
-                        </button>
-                    </div>
-                    {/* Mensaje de ayuda */}
-                    {categoriesList.length === 0 && isNewCategory && (
-                        <p className="text-xs text-orange-500 mt-1">No hay categorías registradas. Cree la primera aquí.</p>
-                    )}
-                </div>
+        {!isSummarized && <ProductPricing formData={formData} setFormData={setFormData} />}
 
-                <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1">Se vende por</label>
-                    <select name="sold_by" value={formData.sold_by} onChange={handleChange} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary bg-white">
-                        <option value="unit">Unidad (u.)</option>
-                        <option value="weight">Peso (KG)</option>
-                    </select>
-                </div>
-
-                <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1">Código SKU / Barras</label>
-                    <input type="text" name="sku" value={formData.sku} onChange={handleChange} onKeyDown={handleKeyDown} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary" />
-                </div>
-            </div>
-        </div>
-
-        <ProductPricing formData={formData} setFormData={setFormData} />
-
-        {formData.variants.length === 0 && (
+        {!isSummarized && formData.variants.length === 0 && (
             <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
                 <h3 className="text-lg font-bold text-gray-800 mb-4">Control de Stock</h3>
                 <div className="grid grid-cols-2 gap-6">
                     <div>
                         <label className="block text-sm font-bold text-gray-700 mb-1">Stock Actual</label>
-                        <input type="number" step={formData.sold_by === 'weight' ? "0.001" : "1"} name="current_stock" value={formData.current_stock} onChange={handleChange} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary" />
+                        <input 
+                            type="number" 
+                            step={formData.sold_by === 'weight' ? "0.001" : "1"} 
+                            name="current_stock" 
+                            value={formData.current_stock} 
+                            onChange={handleChange} 
+                            disabled={!!id}
+                            className={`w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-primary ${id ? 'bg-gray-50 text-gray-500 cursor-not-allowed' : ''}`} 
+                        />
                     </div>
                     <div>
                         <label className="block text-sm font-bold text-gray-700 mb-1">Stock Mínimo</label>
@@ -289,17 +300,21 @@ export default function NewProduct() {
             </div>
         )}
 
-        <ProductVariants formData={formData} setFormData={setFormData} />
+        {!isSummarized && <ProductVariants formData={formData} setFormData={setFormData} />}
 
         {id && <ProductHistory productId={id} onStockUpdate={fetchProduct} />}
 
-        {id && <ProductPriceHistory productId={id} />}
+        {!isSummarized && id && <ProductPriceHistory productId={id} />}
 
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200 flex justify-end gap-4 z-40 md:pl-64">
-            <button type="button" onClick={() => navigate('/productos', { state: { page: returnPage } })} className="px-6 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded-lg transition-colors">Cancelar</button>
-            <button type="submit" disabled={loading} className="px-8 py-2 bg-primary text-white font-bold rounded-lg hover:bg-green-600 transition-colors flex items-center gap-2 shadow-lg shadow-green-200">
-                {loading ? <Loader2 className="animate-spin" /> : <><Save size={20} /> GUARDAR PRODUCTO</>}
+            <button type="button" onClick={() => navigate('/productos', { state: { page: returnPage } })} className="px-6 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded-lg transition-colors">
+              {isSummarized ? 'Volver' : 'Cancelar'}
             </button>
+            {!isSummarized && (
+              <button type="submit" disabled={loading} className="px-8 py-2 bg-primary text-white font-bold rounded-lg hover:bg-green-600 transition-colors flex items-center gap-2 shadow-lg shadow-green-200">
+                  {loading ? <Loader2 className="animate-spin" /> : <><Save size={20} /> GUARDAR PRODUCTO</>}
+              </button>
+            )}
         </div>
 
       </form>

@@ -112,6 +112,7 @@ export default function Login() {
           -webkit-backdrop-filter: blur(16px);
           border: 1.5px solid rgba(255,255,255,0.35);
           box-shadow: 0 8px 32px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.4);
+          animation: gentle-bob 6s ease-in-out infinite;
         }
 
         .input-field {
@@ -137,31 +138,52 @@ export default function Login() {
         }
         .btn-ingresar:active:not(:disabled) { transform: translateY(0); }
 
+        @keyframes float1 {
+          0% { transform: translate(0, 0) scale(1); }
+          50% { transform: translate(24px, -24px) scale(1.08); }
+          100% { transform: translate(0, 0) scale(1); }
+        }
+        @keyframes float2 {
+          0% { transform: translate(0, 0) scale(1); }
+          50% { transform: translate(-28px, 20px) scale(0.92); }
+          100% { transform: translate(0, 0) scale(1); }
+        }
+        @keyframes float3 {
+          0% { transform: translate(0, 0) scale(1); }
+          50% { transform: translate(20px, 30px) scale(1.15); }
+          100% { transform: translate(0, 0) scale(1); }
+        }
+        @keyframes gentle-bob {
+          0% { transform: translateY(0px); }
+          50% { transform: translateY(-8px); }
+          100% { transform: translateY(0px); }
+        }
+        @keyframes fadeInScale {
+          from { opacity: 0; transform: scale(0.97) translateY(12px); }
+          to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
         .orb1 {
           position: absolute; width: 380px; height: 380px;
           border-radius: 50%; background: rgba(255,255,255,0.08);
           bottom: -120px; left: -120px; pointer-events: none;
+          animation: float1 14s ease-in-out infinite;
         }
         .orb2 {
           position: absolute; width: 260px; height: 260px;
           border-radius: 50%; background: rgba(255,255,255,0.06);
           top: -80px; right: -80px; pointer-events: none;
+          animation: float2 18s ease-in-out infinite;
         }
         .orb3 {
           position: absolute; width: 140px; height: 140px;
           border-radius: 50%; background: rgba(255,255,255,0.08);
           top: 40%; right: 10%; pointer-events: none;
+          animation: float3 12s ease-in-out infinite;
         }
 
-        .custom-checkbox { display: none; }
-        .custom-checkbox + label .box {
-          width: 18px; height: 18px;
-          border: 2px solid #cbd5e1; border-radius: 5px;
-          background: white; transition: all 0.2s;
-          display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-        }
-        .custom-checkbox:checked + label .box {
-          background: #22c55e; border-color: #22c55e;
+        .animate-entrance {
+          animation: fadeInScale 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
       `}</style>
 
@@ -171,7 +193,7 @@ export default function Login() {
         <div className="orb2" />
         <div className="orb3" />
 
-        <div className="relative z-10 text-center select-none">
+        <div className="relative z-10 text-center select-none animate-entrance">
           {/* Ícono cerveza glassmorphism */}
           <div className="flex justify-center mb-8">
             <div className="glass-mug p-7 rounded-[2.5rem]">
@@ -184,7 +206,7 @@ export default function Login() {
             <span className="text-white/90">El Grifo</span>
           </h1>
           <p className="text-green-100/80 text-base mt-5 font-medium tracking-wide">
-            Bodega el grifo V2.1
+            Bodega el grifo V2.2
           </p>
         </div>
       </div>
@@ -200,7 +222,7 @@ export default function Login() {
           <h2 className="text-2xl font-bold text-slate-800">Bodega El Grifo</h2>
         </div>
 
-        <div className="w-full max-w-md">
+        <div className="w-full max-w-md animate-entrance">
 
           {/* Título */}
           <div className="mb-10">
@@ -246,23 +268,6 @@ export default function Login() {
                 />
                 <Lock size={18} className="text-slate-300 shrink-0" />
               </div>
-            </div>
-
-            {/* Recordarme */}
-            <div className="flex items-center pt-1">
-              <input
-                type="checkbox"
-                id="remember"
-                className="custom-checkbox"
-              />
-              <label htmlFor="remember" className="flex items-center gap-2.5 cursor-pointer select-none group">
-                <span className="box">
-                  <Check size={11} className="text-white" />
-                </span>
-                <span className="text-sm text-slate-500 group-hover:text-slate-700 transition-colors font-medium">
-                  Recordarme
-                </span>
-              </label>
             </div>
 
             {/* Error */}

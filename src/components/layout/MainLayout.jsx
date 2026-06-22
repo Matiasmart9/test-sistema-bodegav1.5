@@ -1,18 +1,29 @@
 import React, { useState } from 'react';
 import Sidebar from './Sidebar';
 import { Outlet } from 'react-router-dom';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, Beer } from 'lucide-react';
 
 const MainLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    return localStorage.getItem('sidebar_collapsed') === 'true';
+  });
+
+  const toggleSidebarCollapse = () => {
+    setIsSidebarCollapsed(prev => {
+      const next = !prev;
+      localStorage.setItem('sidebar_collapsed', String(next));
+      return next;
+    });
+  };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col md:flex-row">
+    <div className="min-h-screen bg-background">
       {/* Botón de Hamburguesa para Mobile */}
       <header className="md:hidden flex items-center justify-between bg-white border-b border-gray-100 px-4 h-16 sticky top-0 z-40 w-full shadow-xs">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-emerald-500 flex items-center justify-center text-white shadow-md shadow-green-100 shrink-0">
-            <span className="text-xs font-black">★</span>
+          <div className="w-7 h-7 rounded-lg bg-emerald-500 flex items-center justify-center text-white shadow-md shadow-green-100 shrink-0 animate-pulse">
+            <Beer size={14} className="text-white fill-white/20" />
           </div>
           <span className="text-md font-black tracking-tight text-gray-800">
             Bodega <span className="bg-gradient-to-r from-emerald-600 to-green-500 bg-clip-text text-transparent">el Grifo</span>
@@ -36,10 +47,15 @@ const MainLayout = () => {
       )}
 
       {/* Sidebar pasándole el estado */}
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar 
+        isOpen={sidebarOpen} 
+        onClose={() => setSidebarOpen(false)} 
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={toggleSidebarCollapse}
+      />
       
       {/* Contenido dinámico a la derecha */}
-      <main className="flex-1 md:ml-64 p-4 md:p-8 min-w-0">
+      <main className={`transition-all duration-300 ${isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64'} p-4 md:p-8`}>
         <Outlet />
       </main>
     </div>

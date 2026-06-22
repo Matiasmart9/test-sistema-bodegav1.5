@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-const WeatherWidget = () => {
+const WeatherWidget = ({ dark = false }) => {
   const [weather, setWeather] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -52,19 +52,23 @@ const WeatherWidget = () => {
   };
 
   // Si carga o hay error, mostramos algo discreto para que sepas que está ahí
-  if (loading) return <div className="text-xs text-gray-400 py-2 text-center animate-pulse">Cargando clima...</div>;
-  if (error) return <div className="text-xs text-red-300 py-2 text-center">Clima no disponible</div>;
+  if (loading) return <div className={`text-xs py-2 text-center animate-pulse ${dark ? 'text-slate-500' : 'text-gray-400'}`}>Cargando clima...</div>;
+  if (error) return <div className={`text-xs py-2 text-center ${dark ? 'text-red-400/80' : 'text-red-300'}`}>Clima no disponible</div>;
 
   return (
-    <div className="mx-4 mt-2 mb-1 p-2 bg-gradient-to-r from-blue-50 to-blue-100/50 rounded-xl border border-blue-100 flex items-center justify-between shadow-sm">
+    <div className={`p-2 rounded-xl flex items-center justify-between border shadow-sm ${
+      dark 
+        ? 'bg-slate-800/40 border-slate-800/70 text-slate-300' 
+        : 'bg-gradient-to-r from-blue-50 to-blue-100/50 border-blue-100 text-gray-700'
+    }`}>
         <div className="flex items-center gap-2">
             <span className="text-xl">{getIcon(weather.iconId)}</span>
             <div className="flex flex-col leading-none">
-                <span className="text-sm font-black text-gray-700">{weather.temp}°C</span>
-                <span className="text-[10px] text-gray-500 capitalize">{weather.desc}</span>
+                <span className={`text-sm font-black ${dark ? 'text-white' : 'text-gray-700'}`}>{weather.temp}°C</span>
+                <span className={`text-[10px] capitalize ${dark ? 'text-slate-400' : 'text-gray-500'}`}>{weather.desc}</span>
             </div>
         </div>
-        <div className="text-[9px] font-bold text-blue-400 uppercase tracking-wide">
+        <div className={`text-[9px] font-bold uppercase tracking-wide ${dark ? 'text-slate-500' : 'text-blue-400'}`}>
             {weather.name}
         </div>
     </div>

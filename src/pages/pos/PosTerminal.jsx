@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
   collection, getDocs, addDoc, query, where, updateDoc, doc,
@@ -9,7 +10,8 @@ import { db } from '../../firebase/config';
 import {
   Search, ShoppingCart, Trash2, Plus, Minus, CreditCard, LogOut,
   Clock, DollarSign, Barcode, TrendingDown, Printer, X, Tag,
-  Store, MoreVertical, Ban, RefreshCcw, AlertCircle, Loader2, PrinterCheck
+  Store, MoreVertical, Ban, RefreshCcw, AlertCircle, Loader2, PrinterCheck,
+  Package, WifiOff, ClipboardCheck
 } from 'lucide-react';
 import PaymentModal from './PaymentModal';
 import { formatTime } from '../../utils/dateUtils';
@@ -65,6 +67,7 @@ async function generateTicketId(db) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function PosTerminal() {
+  const navigate = useNavigate();
   const { userData, logout } = useAuth();
 
   // ── Sesión efectiva: prioriza pos_user de localStorage sobre Firebase Auth ──
@@ -117,6 +120,22 @@ export default function PosTerminal() {
   // Datos para el gasto y cierre
   const [expenseData,   setExpenseData]   = useState({ amount: '', reason: '' });
   const [shiftSummary,  setShiftSummary]  = useState({ sales: 0, expenses: 0 });
+
+  // --- ESTADO CONEXIÓN INTERNET ---
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   // ─── Carga de productos ──────────────────────────────────────────────────
   // ─── Carga de productos en tiempo real (Sincronización automática) ───────
@@ -808,10 +827,21 @@ export default function PosTerminal() {
   }
 
   const canRegisterExpenses = effectiveUser?.role === 'admin' || effectiveUser?.canRegisterExpenses;
+  const canManageInventorySummarized = effectiveUser?.role === 'admin' || effectiveUser?.canManageInventorySummarized;
+  const canCheckCashierInventory = effectiveUser?.role === 'admin' || effectiveUser?.canCheckCashierInventory;
+  const showOptionsDropdown = canRegisterExpenses || canManageInventorySummarized || canCheckCashierInventory;
 
   // ── INTERFAZ PRINCIPAL ────────────────────────────────────────────────────
   return (
-    <div className="flex h-screen bg-slate-100 overflow-hidden font-sans">
+    <div className="flex h-screen bg-slate-100 overflow-hidden font-sans relative">
+      
+      {/* Banner de sin conexión */}
+      {!isOnline && (
+        <div className="fixed top-0 left-0 right-0 bg-rose-600 text-white py-2.5 px-4 text-center font-bold text-sm flex items-center justify-center gap-2 z-[9999] shadow-lg select-none">
+          <WifiOff size={18} className="animate-pulse" />
+          <span>¡Oops! Te has quedado sin conexión. Por favor, verifica tu red.</span>
+        </div>
+      )}
 
       {/* Modal de confirmación para acciones destructivas */}
       {confirmModal && (
@@ -1114,7 +1144,7 @@ export default function PosTerminal() {
               </div>
             </div>
 
-            {canRegisterExpenses && (
+            {showOptionsDropdown && (
               <div className="relative">
                 <button
                   onClick={() => setShowOptionsMenu(!showOptionsMenu)}
@@ -1127,27 +1157,51 @@ export default function PosTerminal() {
 
                 {showOptionsMenu && (
                   <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden z-50 animate-fadeIn ring-1 ring-black/5">
-                    <button
-                      onClick={() => { setShowExpenseModal(true); setShowOptionsMenu(false); }}
-                      className="w-full text-left px-4 py-3.5 hover:bg-rose-50 text-rose-600 font-bold text-sm flex items-center gap-3 transition-colors"
-                    >
-                      <div className="bg-rose-100 p-1.5 rounded-lg"><TrendingDown size={16}/></div>
-                      Registrar Gasto
-                    </button>
-                    <button
-                      onClick={fetchRecentSales}
-                      className="w-full text-left px-4 py-3.5 hover:bg-slate-50 text-slate-700 font-bold text-sm flex items-center gap-3 border-t border-gray-100 transition-colors"
-                    >
-                      <div className="bg-slate-100 p-1.5 rounded-lg"><Ban size={16}/></div>
-                      Anular Venta
-                    </button>
-                    <button
-                      onClick={fetchReprintSales}
-                      className="w-full text-left px-4 py-3.5 hover:bg-blue-50 text-blue-600 font-bold text-sm flex items-center gap-3 border-t border-gray-100 transition-colors"
-                    >
-                      <div className="bg-blue-100 p-1.5 rounded-lg"><PrinterCheck size={16}/></div>
-                      Reimprimir Ticket
-                    </button>
+                    {canRegisterExpenses && (
+                      <button
+                        onClick={() => { setShowExpenseModal(true); setShowOptionsMenu(false); }}
+                        className="w-full text-left px-4 py-3.5 hover:bg-rose-50 text-rose-600 font-bold text-sm flex items-center gap-3 transition-colors"
+                      >
+                        <div className="bg-rose-100 p-1.5 rounded-lg"><TrendingDown size={16}/></div>
+                        Registrar Gasto
+                      </button>
+                    )}
+                    {canRegisterExpenses && (
+                      <button
+                        onClick={fetchRecentSales}
+                        className="w-full text-left px-4 py-3.5 hover:bg-slate-50 text-slate-700 font-bold text-sm flex items-center gap-3 border-t border-gray-100 transition-colors"
+                      >
+                        <div className="bg-slate-100 p-1.5 rounded-lg"><Ban size={16}/></div>
+                        Anular Venta
+                      </button>
+                    )}
+                    {canRegisterExpenses && (
+                      <button
+                        onClick={fetchReprintSales}
+                        className="w-full text-left px-4 py-3.5 hover:bg-blue-50 text-blue-600 font-bold text-sm flex items-center gap-3 border-t border-gray-100 transition-colors"
+                      >
+                        <div className="bg-blue-100 p-1.5 rounded-lg"><PrinterCheck size={16}/></div>
+                        Reimprimir Ticket
+                      </button>
+                    )}
+                    {canManageInventorySummarized && (
+                      <button
+                        onClick={() => { navigate('/productos'); setShowOptionsMenu(false); }}
+                        className="w-full text-left px-4 py-3.5 hover:bg-emerald-50 text-emerald-600 font-bold text-sm flex items-center gap-3 border-t border-gray-100 transition-colors"
+                      >
+                        <div className="bg-emerald-100 p-1.5 rounded-lg"><Package size={16}/></div>
+                        Ver Inventario
+                      </button>
+                    )}
+                    {canCheckCashierInventory && (
+                      <button
+                        onClick={() => { navigate('/inventario-cajero'); setShowOptionsMenu(false); }}
+                        className="w-full text-left px-4 py-3.5 hover:bg-emerald-50 text-emerald-600 font-bold text-sm flex items-center gap-3 border-t border-gray-100 transition-colors"
+                      >
+                        <div className="bg-emerald-100 p-1.5 rounded-lg"><ClipboardCheck size={16}/></div>
+                        Inventario Cajero
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

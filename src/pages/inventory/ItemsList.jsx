@@ -6,10 +6,13 @@ import { Plus, Search, PackageOpen, Edit, Trash2, ChevronDown, ChevronRight, Che
 import { collection, getDocs, deleteDoc, doc } from "firebase/firestore";
 import { db } from '../../firebase/config';
 import ReporteExcel from '../../components/products/ReporteExcel';
+import { useAuth } from '../../context/AuthContext';
 
 export default function ItemsList() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { userData } = useAuth();
+  const isSummarized = userData?.role === 'cashier' && userData?.canManageInventorySummarized;
   
   // --- ESTADOS DE DATOS ---
   const [products, setProducts] = useState([]);
@@ -233,13 +236,15 @@ export default function ItemsList() {
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3 mt-4 xl:mt-0 w-full xl:w-auto">
-            <ReporteExcel products={filteredProducts} />
-            <button 
-                onClick={() => navigate('/productos/nuevo')}
-                className="bg-primary hover:bg-green-500 text-white px-6 py-3 rounded-lg flex items-center gap-2 shadow-sm transition-colors justify-center font-medium"
-            >
-                <Plus size={20} /> Nuevo
-            </button>
+            {!isSummarized && <ReporteExcel products={filteredProducts} />}
+            {!isSummarized && (
+              <button 
+                  onClick={() => navigate('/productos/nuevo')}
+                  className="bg-primary hover:bg-green-500 text-white px-6 py-3 rounded-lg flex items-center gap-2 shadow-sm transition-colors justify-center font-medium"
+              >
+                  <Plus size={20} /> Nuevo
+              </button>
+            )}
         </div>
       </div>
 
@@ -276,8 +281,8 @@ export default function ItemsList() {
                       </th>
                       <th className="px-6 py-4 border-b border-green-600">Producto</th>
                       <th className="px-6 py-4 border-b border-green-600 hidden sm:table-cell">Categoría</th>
-                      <th className="px-6 py-4 border-b border-green-600">Precio</th>
-                      <th className="px-6 py-4 border-b border-green-600 hidden md:table-cell">Coste</th> 
+                      {!isSummarized && <th className="px-6 py-4 border-b border-green-600">Precio</th>}
+                      {!isSummarized && <th className="px-6 py-4 border-b border-green-600 hidden md:table-cell">Coste</th>}
                       <th className="px-6 py-4 border-b border-green-600">Stock</th>
                       <th className="px-6 py-4 text-center border-b border-green-600 hidden sm:table-cell">Stock Min.</th>
                       <th className="px-6 py-4 text-right border-b border-green-600 rounded-tr-lg">Acciones</th>
@@ -319,12 +324,16 @@ export default function ItemsList() {
                               </div>
                             </td>
                             <td className="px-6 py-4 hidden sm:table-cell"><span className="px-2 py-1 bg-gray-100 text-xs rounded-full font-medium text-gray-600">{product.category}</span></td>
-                            <td className="px-6 py-4 font-medium text-sm text-gray-600">
-                              {hasVariants ? <span className="italic">Varía</span> : `₲ ${product.price?.toLocaleString()}`}
-                            </td>
-                            <td className="px-6 py-4 font-medium text-sm text-gray-500 hidden md:table-cell">
-                              {hasVariants ? '-' : `₲ ${(product.cost || 0).toLocaleString()}`}
-                            </td>
+                            {!isSummarized && (
+                              <td className="px-6 py-4 font-medium text-sm text-gray-600">
+                                {hasVariants ? <span className="italic">Varía</span> : `₲ ${product.price?.toLocaleString()}`}
+                              </td>
+                            )}
+                            {!isSummarized && (
+                              <td className="px-6 py-4 font-medium text-sm text-gray-500 hidden md:table-cell">
+                                {hasVariants ? '-' : `₲ ${(product.cost || 0).toLocaleString()}`}
+                              </td>
+                            )}
                             <td className="px-6 py-4 text-sm">
                                 {calculateTotalStock(product)}
                             </td>
@@ -339,27 +348,29 @@ export default function ItemsList() {
                                 >
                                   <Edit size={18} />
                                 </button>
-                                <button 
-                                  onClick={() => handleDelete(product.id, product.name)}
-                                  className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
-                                >
-                                  <Trash2 size={18} />
-                                </button>
+                                {!isSummarized && (
+                                  <button 
+                                    onClick={() => handleDelete(product.id, product.name)}
+                                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
+                                  >
+                                    <Trash2 size={18} />
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>
 
                           {isExpanded && hasVariants && (
                           <tr className="bg-gray-50/50">
-                              <td colSpan="9" className="px-2 py-4 md:px-10">
+                              <td colSpan={isSummarized ? 7 : 9} className="px-2 py-4 md:px-10">
                               <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm animate-fadeIn">
                                   <div className="overflow-x-auto">
                                     <table className="w-full text-sm">
                                         <thead className="bg-gray-50 text-xs text-gray-500 uppercase font-semibold border-b border-gray-100">
                                             <tr>
                                                 <th className="px-4 py-3 text-left">Variante</th>
-                                                <th className="px-4 py-3 text-right">Precio</th>
-                                                <th className="px-4 py-3 text-right hidden md:table-cell">Coste</th>
+                                                {!isSummarized && <th className="px-4 py-3 text-right">Precio</th>}
+                                                {!isSummarized && <th className="px-4 py-3 text-right hidden md:table-cell">Coste</th>}
                                                 <th className="px-4 py-3 text-center w-24">Stock</th>
                                                 <th className="px-4 py-3 text-center w-24 text-orange-600 hidden sm:table-cell">Inv. Bajo</th>
                                                 <th className="px-4 py-3 text-right w-32 hidden md:table-cell">SKU</th>
@@ -369,8 +380,8 @@ export default function ItemsList() {
                                             {product.variants.map((variant, idx) => (
                                                 <tr key={idx} className="hover:bg-gray-50">
                                                     <td className="px-4 py-3 font-medium text-gray-700">{variant.name}</td>
-                                                    <td className="px-4 py-3 text-right">₲ {variant.price?.toLocaleString()}</td>
-                                                    <td className="px-4 py-3 text-right text-gray-500 hidden md:table-cell">₲ {variant.cost?.toLocaleString()}</td>
+                                                    {!isSummarized && <td className="px-4 py-3 text-right">₲ {variant.price?.toLocaleString()}</td>}
+                                                    {!isSummarized && <td className="px-4 py-3 text-right text-gray-500 hidden md:table-cell">₲ {variant.cost?.toLocaleString()}</td>}
                                                     
                                                     <td className={`px-4 py-3 text-center font-bold ${
                                                         (variant.stock <= 0) ? 'text-red-600 bg-red-50' : 

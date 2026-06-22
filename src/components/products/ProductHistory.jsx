@@ -488,15 +488,15 @@ export default function ProductHistory({ productId, onStockUpdate }) {
               <table className="w-full text-sm text-left">
           <thead className="bg-emerald-600 text-white font-bold text-xs uppercase sticky top-0 z-10 shadow-sm">
             <tr>
-              <th className="px-6 py-3.5 border-r border-emerald-500/25">Fecha</th>
-              <th className="px-6 py-3.5 border-r border-emerald-500/25">Producto / Variante</th>
-              <th className="px-6 py-3.5 border-r border-emerald-500/25">Motivo</th>
-              <th className="px-6 py-3.5 border-r border-emerald-500/25">Nota</th>
-              <th className="px-6 py-3.5 border-r border-emerald-500/25">Usuario</th>
-              <th className="px-6 py-3.5 text-right border-r border-emerald-500/25">Ant.</th>
-              <th className="px-6 py-3.5 text-right border-r border-emerald-500/25">Cambio</th>
-              <th className="px-6 py-3.5 text-right border-r border-emerald-500/25">Final</th>
-              <th className="px-6 py-3.5 text-center">Acciones</th>
+              <th className="px-2.5 py-3 border-r border-emerald-500/25">Fecha</th>
+              <th className="px-2.5 py-3 border-r border-emerald-500/25">Producto / Variante</th>
+              <th className="px-2.5 py-3 border-r border-emerald-500/25">Motivo</th>
+              <th className="px-2.5 py-3 border-r border-emerald-500/25">Nota</th>
+              <th className="px-2.5 py-3 border-r border-emerald-500/25">Usuario</th>
+              <th className="px-2.5 py-3 text-right border-r border-emerald-500/25">Ant.</th>
+              <th className="px-2.5 py-3 text-right border-r border-emerald-500/25">Cambio</th>
+              <th className="px-2.5 py-3 text-right border-r border-emerald-500/25">Final</th>
+              <th className="px-2.5 py-3 text-center">Acciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -506,21 +506,21 @@ export default function ProductHistory({ productId, onStockUpdate }) {
               const previousStock = (log.finalStock || 0) - (log.change || 0);
               return (
                 <tr key={log.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 text-gray-600 whitespace-nowrap text-xs">{formatDate(log.date)}</td>
-                  <td className="px-6 py-4 font-bold text-gray-800 text-xs">{log.variantName || 'Producto Base'}</td>
-                  <td className="px-6 py-4 text-xs">
+                  <td className="px-2.5 py-3 text-gray-600 whitespace-nowrap text-xs">{formatDate(log.date)}</td>
+                  <td className="px-2.5 py-3 font-bold text-gray-800 text-xs">{log.variantName || 'Producto Base'}</td>
+                  <td className="px-2.5 py-3 text-xs">
                     <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-600 border border-gray-200">{log.reason}</span>
                   </td>
-                  <td className="px-6 py-4 text-gray-500 italic text-xs max-w-[150px] truncate">
+                  <td className="px-2.5 py-3 text-gray-500 italic text-xs max-w-[120px] truncate">
                     {log.note ? (
                       <div className="flex items-center gap-1" title={log.note}>
                         <MessageSquare size={12} className="text-blue-400 shrink-0" />{log.note}
                       </div>
                     ) : '-'}
                   </td>
-                  <td className="px-6 py-4 text-gray-600 text-xs">{log.user || 'Sistema'}</td>
-                  <td className="px-6 py-4 text-right text-gray-400 text-xs font-mono">{previousStock}</td>
-                  <td className="px-6 py-4 text-right text-xs">
+                  <td className="px-2.5 py-3 text-gray-600 text-xs truncate max-w-[90px]" title={log.user || 'Sistema'}>{log.user || 'Sistema'}</td>
+                  <td className="px-2.5 py-3 text-right text-gray-400 text-xs font-mono">{previousStock}</td>
+                  <td className="px-2.5 py-3 text-right text-xs">
                     <div className={`font-bold flex items-center justify-end gap-1 ${log.change > 0 ? 'text-green-600' : log.change < 0 ? 'text-red-500' : 'text-gray-400'}`}>
                       {log.change > 0 && <ArrowUp size={12} />}
                       {log.change < 0 && <ArrowDown size={12} />}
@@ -528,8 +528,8 @@ export default function ProductHistory({ productId, onStockUpdate }) {
                       {Math.abs(log.change)}
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-right font-black text-gray-700 text-xs bg-gray-50/50">{log.finalStock}</td>
-                  <td className="px-6 py-4 text-center">
+                  <td className="px-2.5 py-3 text-right font-black text-gray-700 text-xs bg-gray-50/50">{log.finalStock}</td>
+                  <td className="px-2.5 py-3 text-center">
                     <div className="flex items-center justify-center gap-2">
                       <button
                         type="button"

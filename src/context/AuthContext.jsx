@@ -61,10 +61,19 @@ export function AuthProvider({ children }) {
             if(docSnap.exists()) {
                 setUserData({ id: currentUser.uid, ...docSnap.data(), role: 'admin' });
             } else {
-                setUserData({ id: currentUser.uid, name: currentUser.email, role: 'admin' });
+                let displayName = currentUser.displayName;
+                if (!displayName && currentUser.email) {
+                  const prefix = currentUser.email.split('@')[0];
+                  if (prefix.toLowerCase().startsWith('matiasmart')) {
+                    displayName = 'Matias Mart';
+                  } else {
+                    displayName = prefix.charAt(0).toUpperCase() + prefix.slice(1);
+                  }
+                }
+                setUserData({ id: currentUser.uid, name: displayName || 'Administrador', role: 'admin' });
             }
         } catch (e) {
-            setUserData({ id: currentUser.uid, name: 'Admin', role: 'admin' });
+            setUserData({ id: currentUser.uid, name: 'Matias Mart', role: 'admin' });
         }
         setLoading(false);
       } else {

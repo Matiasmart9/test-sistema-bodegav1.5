@@ -177,7 +177,7 @@ export default function InventoryHistoryGlobal() {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
-                <thead className="bg-gray-50 text-gray-600 font-bold border-b border-gray-200 text-xs uppercase">
+                <thead className="bg-primary text-white text-xs uppercase font-bold tracking-wider shadow-sm">
                     <tr>
                         <th className="px-6 py-4">Fecha</th>
                         <th className="px-6 py-4">Producto / Variante</th>

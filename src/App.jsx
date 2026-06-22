@@ -26,6 +26,8 @@ import ManualSaleEntry from './pages/pos/ManualSaleEntry';
 import CashierReport from './pages/pos/CashierReport';
 import StockEntry from './pages/inventory/StockEntry';
 import ProvidersList from './pages/inventory/ProvidersList';
+import InvestmentsList from './pages/investments/InvestmentsList';
+import CashierInventoryAudit from './pages/inventory/CashierInventoryAudit';
 
 
 // ── Pantalla de carga global ─────────────────────────────────────────────────
@@ -48,13 +50,22 @@ const PublicRoute = ({ children }) => {
 };
 
 // ── Ruta protegida ───────────────────────────────────────────────────────────
-const ProtectedRoute = ({ children, allowedRoles }) => {
+const ProtectedRoute = ({ children, allowedRoles, requiresInventory, requiresCashierInventory }) => {
   const { user, userData, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!user)   return <Navigate to="/login" replace />;
   if (allowedRoles && userData) {
-    if (userData.role === 'cashier' && !allowedRoles.includes('cashier'))
-      return <Navigate to="/pos" replace />;
+    if (userData.role === 'cashier') {
+      if (!allowedRoles.includes('cashier')) {
+        return <Navigate to="/pos" replace />;
+      }
+      if (requiresInventory && !userData.canManageInventorySummarized) {
+        return <Navigate to="/pos" replace />;
+      }
+      if (requiresCashierInventory && !userData.canCheckCashierInventory) {
+        return <Navigate to="/pos" replace />;
+      }
+    }
     if (userData.role === 'admin'   && !allowedRoles.includes('admin'))
       return <Navigate to="/"    replace />;
   }
@@ -75,6 +86,16 @@ function App() {
             <PublicRoute><Login /></PublicRoute>
           } />
 
+          {/* ── ZONA COMPARTIDA (CON SIDEBAR) ──────────────────────────── */}
+          <Route path="/" element={
+            <ProtectedRoute allowedRoles={['admin', 'cashier']} requiresInventory={true}>
+              <MainLayout />
+            </ProtectedRoute>
+          }>
+            <Route path="productos"                element={<ItemsList />} />
+            <Route path="productos/editar/:id"     element={<NewProduct />} />
+          </Route>
+
           {/* ── ZONA ADMIN (CON SIDEBAR) ────────────────────────────────── */}
           <Route path="/" element={
             <ProtectedRoute allowedRoles={['admin']}>
@@ -84,9 +105,7 @@ function App() {
             <Route index element={<DashboardHome />} />
 
             {/* Productos */}
-            <Route path="productos"                element={<ItemsList />} />
             <Route path="productos/nuevo"          element={<NewProduct />} />
-            <Route path="productos/editar/:id"     element={<NewProduct />} />
             <Route path="/articulos/historial"     element={<InventoryHistoryGlobal />} />
             <Route path="/articulos/entrada"       element={<StockEntry />} />
             <Route path="/articulos/proveedores"   element={<ProvidersList />} />
@@ -109,6 +128,16 @@ function App() {
             <Route path="cajas"                    element={<ShiftHistory />} />
             <Route path="clientes"                 element={<ClientsList />} />
             <Route path="config"                   element={<Settings />} />
+            <Route path="inversiones"              element={<InvestmentsList />} />
+          </Route>
+
+          {/* ── SECCIÓN INVENTARIO CAJERO (COMPARTIDA CON PERMISO) ───────────────── */}
+          <Route path="/" element={
+            <ProtectedRoute allowedRoles={['admin', 'cashier']} requiresCashierInventory={true}>
+              <MainLayout />
+            </ProtectedRoute>
+          }>
+            <Route path="inventario-cajero" element={<CashierInventoryAudit />} />
           </Route>
 
           {/* ── TERMINAL TPV (pantalla completa, sin sidebar) ────────────── */}

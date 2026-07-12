@@ -47,6 +47,7 @@ export default function CashierInventoryAudit() {
   const [formLoading, setFormLoading] = useState(false);
   const [confirmModal, setConfirmModal] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [adminEditing, setAdminEditing] = useState(false);
 
   // Navegación Admin (TABS)
   const [activeTab, setActiveTab] = useState('curso'); // 'curso' | 'historial'
@@ -159,26 +160,59 @@ export default function CashierInventoryAudit() {
   const stats = getProgressStats();
 
   // --- ACCIONES EN FORMULARIO (CAJERO) ---
-  const handlePhysicalStockChange = (itemId, val) => {
+  const handlePhysicalStockChange = (itemId, val, systemStock) => {
     const cleanVal = val.replace(/\D/g, ''); // Solo números enteros
-    setDraftItems(prev => ({
-      ...prev,
-      [itemId]: {
-        ...prev[itemId],
-        physicalStock: cleanVal
+    setDraftItems(prev => {
+      const current = prev[itemId] || {};
+      let autoMatchStatus = current.matchStatus;
+      
+      // Auto-establecer estado si escriben algo
+      if (cleanVal !== '') {
+        const physicalNum = parseInt(cleanVal, 10);
+        if (physicalNum === systemStock) {
+          autoMatchStatus = 'coincide';
+        } else {
+          autoMatchStatus = 'no_coincide';
+        }
+      } else {
+        autoMatchStatus = null;
       }
-    }));
+
+      return {
+        ...prev,
+        [itemId]: {
+          ...current,
+          physicalStock: cleanVal,
+          matchStatus: autoMatchStatus
+        }
+      };
+    });
   };
 
-  const handleMatchStatusChange = (itemId, status) => {
-    setDraftItems(prev => ({
-      ...prev,
-      [itemId]: {
-        ...prev[itemId],
-        // Toggle si hacen clic en el ya seleccionado
-        matchStatus: prev[itemId]?.matchStatus === status ? null : status
+  const handleMatchStatusChange = (itemId, status, systemStock) => {
+    setDraftItems(prev => {
+      const current = prev[itemId] || {};
+      const newStatus = current.matchStatus === status ? null : status;
+      
+      let newPhysicalStock = current.physicalStock;
+      if (newStatus === 'coincide') {
+        newPhysicalStock = String(systemStock);
+      } else if (newStatus === 'no_coincide' && current.physicalStock === String(systemStock)) {
+        // Si cambia a "no coincide" y el stock físico era igual al del sistema, limpiarlo para que ingrese el real
+        newPhysicalStock = '';
+      } else if (newStatus === null && current.physicalStock === String(systemStock)) {
+        newPhysicalStock = '';
       }
-    }));
+
+      return {
+        ...prev,
+        [itemId]: {
+          ...current,
+          matchStatus: newStatus,
+          physicalStock: newPhysicalStock
+        }
+      };
+    });
   };
 
   const handleCommentChange = (itemId, val) => {
@@ -257,6 +291,7 @@ export default function CashierInventoryAudit() {
           sileo.success({ title: "Cruzamiento de inventario presentado con éxito." });
           setDraftItems({});
           setDraftMetadata(null);
+          setAdminEditing(false);
           loadData();
         } catch (error) {
           console.error("Error al enviar informe:", error);
@@ -264,6 +299,19 @@ export default function CashierInventoryAudit() {
         } finally {
           setFormLoading(false);
         }
+      }
+    });
+  };
+
+  const handleEnableAdminEditing = () => {
+    setConfirmModal({
+      title: '¿Realizar inventario usted mismo/a?',
+      description: 'Esto le permitirá ingresar el stock físico, confirmar las coincidencias y presentar el reporte a su nombre.',
+      confirmText: 'Habilitar Edición',
+      variant: 'warning',
+      onConfirm: () => {
+        setAdminEditing(true);
+        setConfirmModal(null);
       }
     });
   };
@@ -379,9 +427,23 @@ export default function CashierInventoryAudit() {
                 )}
               </div>
               
-              {/* ACCIONES (Ocultar botones de guardado si es administrador leyendo) */}
-              {!isAdmin ? (
-                <div className="flex gap-3 w-full md:w-auto">
+              {/* ACCIONES (Ocultar botones de guardado si es administrador leyendo y no está en modo edición) */}
+              {(!isAdmin || adminEditing) ? (
+                <div className="flex flex-wrap gap-3 w-full md:w-auto items-center">
+                  {isAdmin && (
+                    <div className="px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-700 text-xs flex items-center gap-1.5 font-bold uppercase tracking-wide animate-fadeIn">
+                      <AlertTriangle size={14} className="text-amber-500"/>
+                      Modo Administrador
+                    </div>
+                  )}
+                  {isAdmin && (
+                    <button
+                      onClick={() => setAdminEditing(false)}
+                      className="flex-1 md:flex-initial flex items-center justify-center gap-2 border border-slate-200 hover:bg-slate-50 text-slate-500 hover:text-slate-700 px-4 py-2.5 rounded-xl font-bold text-sm transition-all active:scale-95 cursor-pointer animate-fadeIn"
+                    >
+                      <Eye size={16} /> Ver Solo Lectura
+                    </button>
+                  )}
                   <button
                     onClick={handleSaveDraft}
                     disabled={formLoading || loading}
@@ -398,9 +460,17 @@ export default function CashierInventoryAudit() {
                   </button>
                 </div>
               ) : (
-                <div className="px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-500 text-xs flex gap-2 font-medium">
-                  <Info size={16} className="text-slate-400 shrink-0 mt-0.5"/>
-                  <p>Estás viendo el avance actual del cajero en tiempo real. **Vista de solo lectura**.</p>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
+                  <div className="px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-500 text-xs flex gap-2 font-medium items-center">
+                    <Info size={16} className="text-slate-400 shrink-0"/>
+                    <p>Estás viendo el avance actual del cajero en tiempo real. **Vista de solo lectura**.</p>
+                  </div>
+                  <button
+                    onClick={handleEnableAdminEditing}
+                    className="flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-4 py-2.5 rounded-xl font-bold text-sm shadow-md hover:shadow-lg transition-all active:scale-95 cursor-pointer whitespace-nowrap"
+                  >
+                    <ClipboardCheck size={16} /> Realizar Inventario
+                  </button>
                 </div>
               )}
             </div>
@@ -420,7 +490,7 @@ export default function CashierInventoryAudit() {
             </div>
 
             {/* Aviso de bloqueo */}
-            {!isAdmin && stats.verifiedCount < stats.totalCount && (
+            {(!isAdmin || adminEditing) && stats.verifiedCount < stats.totalCount && (
               <div className="p-3 bg-amber-50 border border-amber-100 rounded-xl text-amber-700 text-xs flex gap-2 font-medium leading-relaxed">
                 <AlertTriangle size={16} className="shrink-0 text-amber-600 mt-0.5"/>
                 <p>El botón **"Confirmar Informe"** se habilitará únicamente cuando se complete la verificación física y de coincidencia para todos los productos en el local.</p>
@@ -502,10 +572,10 @@ export default function CashierInventoryAudit() {
                               <td className="px-6 py-4 text-center min-w-[120px]">
                                 <input 
                                   type="text"
-                                  disabled={isAdmin || formLoading}
+                                  disabled={(isAdmin && !adminEditing) || formLoading}
                                   placeholder="Físico"
                                   value={draft.physicalStock ?? ''}
-                                  onChange={(e) => handlePhysicalStockChange(item.id, e.target.value)}
+                                  onChange={(e) => handlePhysicalStockChange(item.id, e.target.value, item.systemStock)}
                                   className="w-20 text-center p-2 border border-slate-200 rounded-lg text-sm font-bold focus:outline-none focus:border-emerald-500 bg-slate-50 focus:bg-white text-slate-800 disabled:opacity-75 disabled:bg-slate-100"
                                 />
                               </td>
@@ -517,8 +587,8 @@ export default function CashierInventoryAudit() {
                                   {/* Pill Coincide */}
                                   <button
                                     type="button"
-                                    disabled={isAdmin || formLoading}
-                                    onClick={() => handleMatchStatusChange(item.id, 'coincide')}
+                                    disabled={(isAdmin && !adminEditing) || formLoading}
+                                    onClick={() => handleMatchStatusChange(item.id, 'coincide', item.systemStock)}
                                     className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-all flex items-center gap-1 cursor-pointer active:scale-95 disabled:opacity-75 ${
                                       isCoincide 
                                         ? 'bg-emerald-500 border-emerald-600 text-white shadow-xs' 
@@ -531,8 +601,8 @@ export default function CashierInventoryAudit() {
                                   {/* Pill No Coincide */}
                                   <button
                                     type="button"
-                                    disabled={isAdmin || formLoading}
-                                    onClick={() => handleMatchStatusChange(item.id, 'no_coincide')}
+                                    disabled={(isAdmin && !adminEditing) || formLoading}
+                                    onClick={() => handleMatchStatusChange(item.id, 'no_coincide', item.systemStock)}
                                     className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-all flex items-center gap-1 cursor-pointer active:scale-95 disabled:opacity-75 ${
                                       isNoCoincide 
                                         ? 'bg-red-500 border-red-600 text-white shadow-xs' 
@@ -549,7 +619,7 @@ export default function CashierInventoryAudit() {
                               <td className="px-6 py-4">
                                 <input 
                                   type="text"
-                                  disabled={isAdmin || formLoading}
+                                  disabled={(isAdmin && !adminEditing) || formLoading}
                                   placeholder="Observación opcional..."
                                   value={draft.comment ?? ''}
                                   onChange={(e) => handleCommentChange(item.id, e.target.value)}

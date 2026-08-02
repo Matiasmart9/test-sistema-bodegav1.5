@@ -162,7 +162,7 @@ export default function ItemsList() {
     const stock = parseInt(product.current_stock) || 0;
     const min = parseInt(product.low_stock) || 0;
 
-    if (stock <= 0) return <span className="text-red-600 font-black bg-red-50 px-2 py-1 rounded">Sin Stock ({stock})</span>;
+    if (stock <= 0) return <span className="text-red-600 font-black bg-red-50 px-2 py-1 rounded inline-block whitespace-nowrap">({stock}) Sin Stock</span>;
     else if (stock <= min) return <span className="text-red-500 font-bold">{stock}</span>;
     else return <span className="text-gray-800 font-medium">{stock}</span>;
   };
@@ -334,7 +334,7 @@ export default function ItemsList() {
                                 {hasVariants ? '-' : `₲ ${(product.cost || 0).toLocaleString()}`}
                               </td>
                             )}
-                            <td className="px-6 py-4 text-sm">
+                            <td className="px-6 py-4 text-sm whitespace-nowrap">
                                 {calculateTotalStock(product)}
                             </td>
                             <td className="px-6 py-4 text-center text-sm text-gray-500 hidden sm:table-cell">

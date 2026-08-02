@@ -543,7 +543,7 @@ export default function ManualSaleEntry() {
                         className="w-6 h-6 rounded bg-gray-100 hover:bg-red-100 hover:text-red-600 flex items-center justify-center transition-colors">
                         <Minus size={11} />
                       </button>
-                      <input type="number" step={item.soldBy === 'weight' ? '0.001' : '1'}
+                      <input type="number" step={item.soldBy === 'weight' ? '0.001' : '1'} min={item.soldBy === 'weight' ? '0.001' : '1'}
                         value={item.quantity} onChange={e => handleQuantityChange(item.id, e.target.value)}
                         className="w-10 text-center text-sm font-bold border border-gray-200 rounded p-0.5 focus:outline-none focus:border-indigo-400" />
                       <button onClick={() => updateQuantity(item.id, 1)}

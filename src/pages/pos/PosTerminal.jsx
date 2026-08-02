@@ -552,7 +552,7 @@ export default function PosTerminal() {
   };
 
   // ─── Cálculos del carrito ────────────────────────────────────────────────
-  const subTotalAmount = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
+  const subTotalAmount = cart.reduce((acc, item) => acc + item.price * (parseFloat(item.quantity) || 0), 0);
 
   const discountTotal = appliedDiscounts.reduce((acc, d) => {
     const val = d.type === 'fixed'
@@ -728,13 +728,17 @@ export default function PosTerminal() {
   const handleQuantityChange = (id, value) => {
     const item = cart.find(i => i.id === id);
     if (!item) return;
+    if (value === '') {
+      setCart(prev => prev.map(i => i.id === id ? { ...i, quantity: '' } : i));
+      return;
+    }
+    const minQty = item.soldBy === 'weight' ? 0.001 : 1;
     let val = item.soldBy === 'weight' ? parseFloat(value) : parseInt(value);
-    if (isNaN(val)) val = 0;
+    if (isNaN(val) || val < minQty) val = minQty;
     if (val > item.stock) {
       sileo.warning({ title: `⚠️ Solo hay ${item.stock} en stock.` });
       val = item.stock;
     }
-    if (value === '') return;
     setCart(prev => prev.map(i => i.id === id ? { ...i, quantity: val } : i));
   };
 
@@ -1310,8 +1314,15 @@ export default function PosTerminal() {
                 <input
                   type="number"
                   step={item.soldBy === 'weight' ? '0.001' : '1'}
+                  min={item.soldBy === 'weight' ? '0.001' : '1'}
                   value={item.quantity}
                   onChange={e => handleQuantityChange(item.id, e.target.value)}
+                  onBlur={() => {
+                    const minQty = item.soldBy === 'weight' ? 0.001 : 1;
+                    if (!item.quantity || item.quantity < minQty) {
+                      handleQuantityChange(item.id, minQty);
+                    }
+                  }}
                   className="w-full text-center bg-transparent font-bold text-sm focus:outline-none p-0 appearance-none text-gray-700"
                 />
                 <button onClick={() => updateQuantity(item.id, -1)} className="text-gray-400 hover:text-rose-500 hover:bg-rose-50 rounded p-0.5 transition-colors">
@@ -1323,7 +1334,7 @@ export default function PosTerminal() {
                 <p className="text-[10px] text-gray-400 font-medium mt-1">Unit: ₲ {item.price.toLocaleString()}</p>
               </div>
               <div className="text-right flex flex-col justify-between items-end py-1">
-                <p className="text-sm font-black text-gray-800">₲ {(item.price * item.quantity).toLocaleString()}</p>
+                <p className="text-sm font-black text-gray-800">₲ {(item.price * (parseFloat(item.quantity) || 0)).toLocaleString()}</p>
                 <button onClick={() => removeFromCart(item.id)} className="text-gray-300 hover:text-rose-500 transition-colors p-1 rounded-lg hover:bg-rose-50">
                   <Trash2 size={16}/>
                 </button>

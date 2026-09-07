@@ -71,7 +71,7 @@ export default function ShiftCloseTicket({ shiftData, salesTotal, expensesTotal 
   const totalCost     = shiftDetail?.totalCost || 0;
   const gananciaNeta  = salesNet - totalCost - expensesNet; // Ventas − Costo − Gastos
 
-  const fmt = (d) => d.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' });
+  const fmt = (d) => d.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit', hour12: false });
 
   return (
     <div className="font-mono text-[11px] text-gray-900 leading-relaxed bg-white w-full p-4">

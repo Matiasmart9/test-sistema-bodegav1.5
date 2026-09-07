@@ -80,6 +80,12 @@ export default function PosTerminal() {
     return userData;
   }, [userData]);
 
+  // ── Permisos del cajero (también se usan en la pantalla de turno cerrado) ──
+  const canRegisterExpenses          = effectiveUser?.role === 'admin' || effectiveUser?.canRegisterExpenses;
+  const canManageInventorySummarized = effectiveUser?.role === 'admin' || effectiveUser?.canManageInventorySummarized;
+  const canCheckCashierInventory     = effectiveUser?.role === 'admin' || effectiveUser?.canCheckCashierInventory;
+  const hasInventoryAccess           = canManageInventorySummarized || canCheckCashierInventory;
+
   // Logout adaptado: si es cajero (localStorage), limpia solo pos_user
   const handleLogout = () => {
     localStorage.removeItem('pos_user');
@@ -783,13 +789,37 @@ export default function PosTerminal() {
         <div className="bg-slate-800 p-8 rounded-2xl shadow-2xl text-center max-w-md w-full border border-slate-700">
           <Clock size={48} className="text-emerald-400 mx-auto mb-6"/>
           <h2 className="text-2xl font-bold mb-2">El turno está cerrado</h2>
-          <p className="text-slate-400 mb-6">Debe abrir caja para comenzar a vender.</p>
+          <p className="text-slate-400 mb-6">
+            {hasInventoryAccess ? '¿Qué querés hacer?' : 'Debe abrir caja para comenzar a vender.'}
+          </p>
           <button
             onClick={() => setShowOpenModal(true)}
-            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl mt-2 shadow-lg shadow-emerald-900/50 transition-all hover:scale-[1.02]"
+            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl mt-2 shadow-lg shadow-emerald-900/50 transition-all hover:scale-[1.02] flex items-center justify-center gap-2"
           >
-            ABRIR EL TURNO
+            <ShoppingCart size={20}/> INICIAR CAJA
           </button>
+
+          {hasInventoryAccess && (
+            <div className="mt-5 pt-5 border-t border-slate-700 space-y-3">
+              <p className="text-xs uppercase tracking-wider text-slate-500 font-bold">o ir directo a</p>
+              {canManageInventorySummarized && (
+                <button
+                  onClick={() => navigate('/productos')}
+                  className="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3.5 rounded-xl transition-all hover:scale-[1.02] flex items-center justify-center gap-2"
+                >
+                  <Package size={18}/> INVENTARIO
+                </button>
+              )}
+              {canCheckCashierInventory && (
+                <button
+                  onClick={() => navigate('/inventario-cajero')}
+                  className="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3.5 rounded-xl transition-all hover:scale-[1.02] flex items-center justify-center gap-2"
+                >
+                  <ClipboardCheck size={18}/> INVENTARIO CAJERO
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {showOpenModal && (
@@ -830,9 +860,6 @@ export default function PosTerminal() {
     );
   }
 
-  const canRegisterExpenses = effectiveUser?.role === 'admin' || effectiveUser?.canRegisterExpenses;
-  const canManageInventorySummarized = effectiveUser?.role === 'admin' || effectiveUser?.canManageInventorySummarized;
-  const canCheckCashierInventory = effectiveUser?.role === 'admin' || effectiveUser?.canCheckCashierInventory;
   const showOptionsDropdown = canRegisterExpenses || canManageInventorySummarized || canCheckCashierInventory;
 
   // ── INTERFAZ PRINCIPAL ────────────────────────────────────────────────────

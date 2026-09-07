@@ -5,9 +5,31 @@ import { collection, query, where, getDocs, doc, updateDoc, increment } from 'fi
 import { auth, db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
 import { sileo } from 'sileo';
-import { Beer, Loader2, AlertCircle, ArrowRight, Lock, Mail, Check, ShieldOff } from 'lucide-react';
+import { Beer, Loader2, AlertCircle, ArrowRight, Mail, Check, ShieldOff, Eye, EyeOff, Sunrise, Sun, Moon } from 'lucide-react';
 
 const MAX_ATTEMPTS = 3;
+
+// ── Saludo dinámico según la hora del día (texto + ícono + color) ────────────
+const getGreeting = () => {
+  const h = new Date().getHours();
+  if (h < 6)  return { text: 'Buenas Noches', Icon: Moon,    color: 'text-indigo-400' };
+  if (h < 12) return { text: 'Buenos Días',   Icon: Sunrise, color: 'text-amber-400'  };
+  if (h < 19) return { text: 'Buenas Tardes', Icon: Sun,     color: 'text-orange-400' };
+  return              { text: 'Buenas Noches', Icon: Moon,    color: 'text-indigo-400' };
+};
+
+// ── Burbujas ascendentes del panel izquierdo (config fija, look "chopp") ─────
+const BUBBLES = [
+  { left: '8%',  size: 16, duration: 7,  delay: 0    },
+  { left: '18%', size: 10, duration: 5.5, delay: 1.2 },
+  { left: '28%', size: 22, duration: 8.5, delay: 0.6 },
+  { left: '40%', size: 13, duration: 6.2, delay: 2.4 },
+  { left: '52%', size: 9,  duration: 5,  delay: 0.9  },
+  { left: '64%', size: 19, duration: 9,  delay: 1.8  },
+  { left: '74%', size: 12, duration: 6.8, delay: 0.3 },
+  { left: '85%', size: 25, duration: 10, delay: 2.9  },
+  { left: '92%', size: 14, duration: 7.4, delay: 1.5 },
+];
 
 export default function Login() {
   const navigate = useNavigate();
@@ -15,8 +37,11 @@ export default function Login() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const greeting = getGreeting();
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -185,6 +210,35 @@ export default function Login() {
         .animate-entrance {
           animation: fadeInScale 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
+
+        /* ── Burbujas ascendentes (efecto chopp de cerveza) ───────────────── */
+        @keyframes riseBubble {
+          0%   { transform: translateY(0) scale(1);     opacity: 0; }
+          12%  { opacity: 0.75; }
+          85%  { opacity: 0.35; }
+          100% { transform: translateY(-115%) scale(1.5); opacity: 0; }
+        }
+        .bubble {
+          position: absolute;
+          bottom: -10%;
+          border-radius: 50%;
+          background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.95), rgba(255,255,255,0.35));
+          box-shadow: 0 0 6px rgba(255,255,255,0.5);
+          pointer-events: none;
+          animation: riseBubble linear infinite;
+        }
+
+        /* ── Sacudida sutil para el mensaje de error ──────────────────────── */
+        @keyframes shakeError {
+          0%, 100% { transform: translateX(0); }
+          20%      { transform: translateX(-6px); }
+          40%      { transform: translateX(5px); }
+          60%      { transform: translateX(-3px); }
+          80%      { transform: translateX(2px); }
+        }
+        .animate-shake {
+          animation: shakeError 0.45s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+        }
       `}</style>
 
       {/* ── PANEL IZQUIERDO ──────────────────────────────────────────── */}
@@ -192,6 +246,21 @@ export default function Login() {
         <div className="orb1" />
         <div className="orb2" />
         <div className="orb3" />
+
+        {/* Burbujas ascendentes — guiño a la cerveza tirada del "Grifo" */}
+        {BUBBLES.map((b, i) => (
+          <span
+            key={i}
+            className="bubble"
+            style={{
+              left: b.left,
+              width: b.size,
+              height: b.size,
+              animationDuration: `${b.duration}s`,
+              animationDelay: `${b.delay}s`,
+            }}
+          />
+        ))}
 
         <div className="relative z-10 text-center select-none animate-entrance">
           {/* Ícono cerveza glassmorphism */}
@@ -226,8 +295,9 @@ export default function Login() {
 
           {/* Título */}
           <div className="mb-10">
-            <h3 className="text-5xl font-extrabold text-slate-900 mb-2 tracking-tight">
-              Bienvenido
+            <h3 className="text-5xl font-extrabold text-slate-900 mb-2 tracking-tight flex items-center gap-3">
+              <greeting.Icon size={40} className={`${greeting.color} shrink-0`} strokeWidth={2} />
+              {greeting.text}
             </h3>
             <p className="text-slate-400 text-base font-medium">
               Inicia sesión para continuar.
@@ -244,7 +314,10 @@ export default function Login() {
               <div className="input-field flex items-center px-4 py-3.5 gap-3">
                 <input
                   type="email"
-                  className="w-full bg-transparent border-none p-0 text-base text-slate-800 placeholder-slate-300 focus:ring-0 focus:outline-none"
+                  autoFocus
+                  autoComplete="username"
+                  disabled={loading}
+                  className="w-full bg-transparent border-none p-0 text-base text-slate-800 placeholder-slate-300 focus:ring-0 focus:outline-none disabled:opacity-60"
                   placeholder="tu@email.com"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
@@ -260,19 +333,29 @@ export default function Login() {
               </label>
               <div className="input-field flex items-center px-4 py-3.5 gap-3">
                 <input
-                  type="password"
-                  className="w-full bg-transparent border-none p-0 text-base text-slate-800 placeholder-slate-300 focus:ring-0 focus:outline-none font-mono"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  disabled={loading}
+                  className="w-full bg-transparent border-none p-0 text-base text-slate-800 placeholder-slate-300 focus:ring-0 focus:outline-none font-mono disabled:opacity-60"
                   placeholder="••••••••••"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                 />
-                <Lock size={18} className="text-slate-300 shrink-0" />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(v => !v)}
+                  className="text-slate-300 hover:text-slate-500 transition-colors shrink-0"
+                  tabIndex={-1}
+                  aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </div>
 
             {/* Error */}
             {error && (
-              <div className="bg-red-50 text-red-600 px-4 py-3.5 rounded-xl text-sm flex items-center gap-3 border border-red-100">
+              <div className="animate-shake bg-red-50 text-red-600 px-4 py-3.5 rounded-xl text-sm flex items-center gap-3 border border-red-100">
                 <AlertCircle size={18} className="shrink-0" />
                 <span>{error}</span>
               </div>

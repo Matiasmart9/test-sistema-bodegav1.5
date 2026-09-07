@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import WeatherWidget from '../ui/WeatherWidget';
+import ConfirmModal from '../ui/ConfirmModal';
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -34,6 +35,7 @@ const Sidebar = ({ isOpen, onClose, isCollapsed, onToggleCollapse }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { userData, logout } = useAuth();
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   const menuItems = [
     { path: '/', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
@@ -302,7 +304,7 @@ const Sidebar = ({ isOpen, onClose, isCollapsed, onToggleCollapse }) => {
 
         {isAdmin ? (
           <button
-            onClick={() => { logout(); onClose(); }}
+            onClick={() => setShowLogoutConfirm(true)}
             className={`w-full flex items-center justify-center ${isCollapsed ? 'w-10 h-10 p-0' : 'gap-2 px-3 py-2.5'} text-sm
                        text-red-400 bg-slate-900/50 border border-red-950/80 rounded-lg
                        hover:bg-red-600 hover:text-white hover:border-red-600 transition-all shadow-xs font-bold`}
@@ -322,6 +324,18 @@ const Sidebar = ({ isOpen, onClose, isCollapsed, onToggleCollapse }) => {
           </button>
         )}
       </div>
+
+      {showLogoutConfirm && (
+        <ConfirmModal
+          variant="logout"
+          title="¿Cerrar sesión?"
+          description="Vas a salir del sistema y tendrás que volver a iniciar sesión para acceder."
+          confirmText="Salir"
+          cancelText="Cancelar"
+          onConfirm={() => { logout(); onClose(); }}
+          onClose={() => setShowLogoutConfirm(false)}
+        />
+      )}
     </aside>
   );
 };

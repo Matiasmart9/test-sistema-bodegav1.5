@@ -154,6 +154,24 @@ export default function ItemsList() {
   const goToPreviousPage = () => setCurrentPage(prev => Math.max(prev - 1, 1));
   const goToNextPage = () => setCurrentPage(prev => Math.min(prev + 1, totalPages));
   
+  const calculateMargin = (price, cost) => {
+    const p = parseFloat(price) || 0;
+    const c = parseFloat(cost) || 0;
+    if (p <= 0) return null;
+    return ((p - c) / p) * 100;
+  };
+
+  const renderMargin = (price, cost) => {
+    const margin = calculateMargin(price, cost);
+    if (margin === null) return <span className="text-gray-400">-</span>;
+    const colorClass = margin <= 0
+      ? 'text-red-600 font-black bg-red-50 px-2 py-1 rounded'
+      : margin < 20
+        ? 'text-amber-600 font-bold'
+        : 'text-green-600 font-bold';
+    return <span className={colorClass}>{margin.toFixed(1)}%</span>;
+  };
+
   const calculateTotalStock = (product) => {
     if (product.variants && product.variants.length > 0) {
       const total = product.variants.reduce((acc, curr) => acc + (parseInt(curr.stock) || 0), 0);
@@ -283,6 +301,7 @@ export default function ItemsList() {
                       <th className="px-6 py-4 border-b border-green-600 hidden sm:table-cell">Categoría</th>
                       {!isSummarized && <th className="px-6 py-4 border-b border-green-600">Precio</th>}
                       {!isSummarized && <th className="px-6 py-4 border-b border-green-600 hidden md:table-cell">Coste</th>}
+                      {!isSummarized && <th className="px-6 py-4 border-b border-green-600 hidden lg:table-cell">Margen</th>}
                       <th className="px-6 py-4 border-b border-green-600">Stock</th>
                       <th className="px-6 py-4 text-center border-b border-green-600 hidden sm:table-cell">Stock Min.</th>
                       <th className="px-6 py-4 text-right border-b border-green-600 rounded-tr-lg">Acciones</th>
@@ -334,6 +353,11 @@ export default function ItemsList() {
                                 {hasVariants ? '-' : `₲ ${(product.cost || 0).toLocaleString()}`}
                               </td>
                             )}
+                            {!isSummarized && (
+                              <td className="px-6 py-4 text-sm hidden lg:table-cell">
+                                {hasVariants ? <span className="text-gray-400">-</span> : renderMargin(product.price, product.cost)}
+                              </td>
+                            )}
                             <td className="px-6 py-4 text-sm whitespace-nowrap">
                                 {calculateTotalStock(product)}
                             </td>
@@ -362,7 +386,7 @@ export default function ItemsList() {
 
                           {isExpanded && hasVariants && (
                           <tr className="bg-gray-50/50">
-                              <td colSpan={isSummarized ? 7 : 9} className="px-2 py-4 md:px-10">
+                              <td colSpan={isSummarized ? 7 : 10} className="px-2 py-4 md:px-10">
                               <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm animate-fadeIn">
                                   <div className="overflow-x-auto">
                                     <table className="w-full text-sm">
@@ -371,6 +395,7 @@ export default function ItemsList() {
                                                 <th className="px-4 py-3 text-left">Variante</th>
                                                 {!isSummarized && <th className="px-4 py-3 text-right">Precio</th>}
                                                 {!isSummarized && <th className="px-4 py-3 text-right hidden md:table-cell">Coste</th>}
+                                                {!isSummarized && <th className="px-4 py-3 text-right hidden lg:table-cell">Margen</th>}
                                                 <th className="px-4 py-3 text-center w-24">Stock</th>
                                                 <th className="px-4 py-3 text-center w-24 text-orange-600 hidden sm:table-cell">Inv. Bajo</th>
                                                 <th className="px-4 py-3 text-right w-32 hidden md:table-cell">SKU</th>
@@ -382,7 +407,8 @@ export default function ItemsList() {
                                                     <td className="px-4 py-3 font-medium text-gray-700">{variant.name}</td>
                                                     {!isSummarized && <td className="px-4 py-3 text-right">₲ {variant.price?.toLocaleString()}</td>}
                                                     {!isSummarized && <td className="px-4 py-3 text-right text-gray-500 hidden md:table-cell">₲ {variant.cost?.toLocaleString()}</td>}
-                                                    
+                                                    {!isSummarized && <td className="px-4 py-3 text-right hidden lg:table-cell">{renderMargin(variant.price, variant.cost)}</td>}
+
                                                     <td className={`px-4 py-3 text-center font-bold ${
                                                         (variant.stock <= 0) ? 'text-red-600 bg-red-50' : 
                                                         (variant.stock <= (variant.low_stock || 5)) ? 'text-red-500' : 'text-green-600'

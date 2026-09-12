@@ -29,6 +29,8 @@ import {
   X,
   Coins,
   ClipboardCheck,
+  BookOpen,
+  HandCoins,
 } from 'lucide-react';
 
 const Sidebar = ({ isOpen, onClose, isCollapsed, onToggleCollapse }) => {
@@ -75,11 +77,14 @@ const Sidebar = ({ isOpen, onClose, isCollapsed, onToggleCollapse }) => {
         { path: '/productos',           label: 'Lista de Productos',   icon: <Package size={16} /> },
         { path: '/articulos/historial', label: 'Historial Inventario', icon: <History size={16} /> },
         { path: '/articulos/entrada',   label: 'Entrada Mercadería',   icon: <Truck size={16} /> },
+        { path: '/articulos/ficha-mercaderias', label: 'Ficha de Mercaderías', icon: <BookOpen size={16} /> },
         { path: '/articulos/proveedores', label: 'Proveedores',        icon: <Users size={16} /> },
         { path: '/descuentos',          label: 'Descuentos',           icon: <Tag size={16} /> },
         { path: '/inventario-cajero',   label: 'Inventario Cajero',    icon: <ClipboardCheck size={16} /> },
       ],
     },
+
+    { path: '/fiados', icon: <HandCoins size={20} />, label: 'Clientes Fiados' },
 
     // GRUPO EMPLEADOS
     {

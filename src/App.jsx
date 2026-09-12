@@ -16,6 +16,7 @@ import Login from './pages/auth/Login';
 import SalesHistory from './pages/pos/SalesHistory';
 import InventoryHistoryGlobal from './pages/inventory/InventoryHistoryGlobal';
 import ClientsList from './pages/clients/ClientsList';
+import CreditClientsList from './pages/clients/CreditClientsList';
 import Settings from './pages/config/Settings';
 import ShiftHistory from './pages/pos/ShiftHistory';
 import DiscountsList from './pages/discounts/DiscountsList';
@@ -25,6 +26,7 @@ import ProductSalesReport from './pages/pos/ProductSalesReport';
 import ManualSaleEntry from './pages/pos/ManualSaleEntry';
 import CashierReport from './pages/pos/CashierReport';
 import StockEntry from './pages/inventory/StockEntry';
+import ProductLedger from './pages/inventory/ProductLedger';
 import ProvidersList from './pages/inventory/ProvidersList';
 import InvestmentsList from './pages/investments/InvestmentsList';
 import CashierInventoryAudit from './pages/inventory/CashierInventoryAudit';
@@ -108,6 +110,7 @@ function App() {
             <Route path="productos/nuevo"          element={<NewProduct />} />
             <Route path="/articulos/historial"     element={<InventoryHistoryGlobal />} />
             <Route path="/articulos/entrada"       element={<StockEntry />} />
+            <Route path="/articulos/ficha-mercaderias" element={<ProductLedger />} />
             <Route path="/articulos/proveedores"   element={<ProvidersList />} />
 
             {/* Gastos directo admin */}
@@ -127,6 +130,7 @@ function App() {
             {/* Otras secciones */}
             <Route path="cajas"                    element={<ShiftHistory />} />
             <Route path="clientes"                 element={<ClientsList />} />
+            <Route path="fiados"                   element={<CreditClientsList />} />
             <Route path="config"                   element={<Settings />} />
             <Route path="inversiones"              element={<InvestmentsList />} />
           </Route>

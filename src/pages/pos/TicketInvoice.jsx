@@ -7,7 +7,7 @@ const ivaIncluido = (importe, tasa = 10) =>
   Math.round(importe / (tasa === 5 ? 21 : 11));
 
 const formatPaymentMethod = (method) => {
-  const m = { cash: 'EFECTIVO', qr: 'QR', card: 'TARJETA', transfer: 'TRANSFERENCIA' };
+  const m = { cash: 'EFECTIVO', qr: 'QR', card: 'TARJETA', transfer: 'TRANSFERENCIA', fiado: 'FIADO' };
   return m[method] || method;
 };
 
@@ -153,10 +153,18 @@ export default function TicketInvoice({
       {/* PAGO */}
       <div className="text-[11px] font-bold mb-3 space-y-1 border border-gray-300 p-2 rounded bg-gray-50">
         <div className="flex justify-between"><span>MÉTODO:</span><span>{formatPaymentMethod(paymentMethod)}</span></div>
-        <div className="flex justify-between"><span>RECIBIDO:</span><span>₲ {(parseFloat(amountPaid) || total).toLocaleString()}</span></div>
-        <div className="flex justify-between text-sm pt-1 border-t border-gray-200 mt-1">
-          <span>VUELTO:</span><span>₲ {(parseFloat(change) || 0).toLocaleString()}</span>
-        </div>
+        {paymentMethod === 'fiado' ? (
+          <div className="flex justify-between text-sm pt-1 border-t border-gray-200 mt-1">
+            <span>SALDO A CRÉDITO:</span><span>₲ {total.toLocaleString()}</span>
+          </div>
+        ) : (
+          <>
+            <div className="flex justify-between"><span>RECIBIDO:</span><span>₲ {(parseFloat(amountPaid) || total).toLocaleString()}</span></div>
+            <div className="flex justify-between text-sm pt-1 border-t border-gray-200 mt-1">
+              <span>VUELTO:</span><span>₲ {(parseFloat(change) || 0).toLocaleString()}</span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* IVA RESUMEN */}

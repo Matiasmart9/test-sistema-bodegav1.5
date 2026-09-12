@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { collection, addDoc, updateDoc, doc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
-import { User, Mail, Shield, Save, ArrowLeft, Loader2, Lock, Eye, EyeOff, TrendingDown, ClipboardList, ClipboardCheck } from 'lucide-react';
+import { User, Mail, Shield, Save, ArrowLeft, Loader2, Lock, Eye, EyeOff, TrendingDown, ClipboardList, ClipboardCheck, HandCoins } from 'lucide-react';
 
 export default function EmployeeForm() {
   const navigate = useNavigate();
@@ -21,7 +21,8 @@ export default function EmployeeForm() {
     password: '',
     canRegisterExpenses: false, // <--- NUEVO CAMPO DE PERMISO
     canManageInventorySummarized: false,
-    canCheckCashierInventory: false
+    canCheckCashierInventory: false,
+    canManageFiado: false
   });
 
   // CARGAR DATOS
@@ -38,7 +39,8 @@ export default function EmployeeForm() {
                 password: data.password || data.pin || '',
                 canRegisterExpenses: data.canRegisterExpenses || false, // Cargar el permiso existente o false
                 canManageInventorySummarized: data.canManageInventorySummarized || false,
-                canCheckCashierInventory: data.canCheckCashierInventory || false
+                canCheckCashierInventory: data.canCheckCashierInventory || false,
+                canManageFiado: data.canManageFiado || false
             });
           } else {
             sileo.error({ title: 'Empleado no encontrado.' });
@@ -72,7 +74,8 @@ export default function EmployeeForm() {
           pin: null,
           canRegisterExpenses: formData.canRegisterExpenses, // Guardamos el permiso
           canManageInventorySummarized: formData.canManageInventorySummarized || false,
-          canCheckCashierInventory: formData.canCheckCashierInventory || false
+          canCheckCashierInventory: formData.canCheckCashierInventory || false,
+          canManageFiado: formData.canManageFiado || false
       };
 
       if (isEditMode) {
@@ -238,6 +241,27 @@ export default function EmployeeForm() {
                         {/* TOGGLE SWITCH */}
                         <div className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 ${formData.canCheckCashierInventory ? 'bg-green-500' : 'bg-gray-300'}`}>
                             <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${formData.canCheckCashierInventory ? 'translate-x-6' : 'translate-x-0'}`}></div>
+                        </div>
+                    </div>
+
+                    {/* SWITCH VISUAL PARA FIADO */}
+                    <div
+                        className={`flex items-center justify-between p-4 border rounded-xl cursor-pointer transition-all ${formData.canManageFiado ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50 hover:border-gray-300'}`}
+                        onClick={() => setFormData({...formData, canManageFiado: !formData.canManageFiado})}
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-lg ${formData.canManageFiado ? 'bg-white text-green-600 shadow-sm' : 'bg-gray-200 text-gray-500'}`}>
+                                <HandCoins size={20} />
+                            </div>
+                            <div>
+                                <p className={`font-bold text-sm ${formData.canManageFiado ? 'text-green-800' : 'text-gray-700'}`}>Habilitar Fiado</p>
+                                <p className="text-xs text-gray-500">Permite cargar ventas a crédito y cobrar pagos de clientes fiados.</p>
+                            </div>
+                        </div>
+
+                        {/* TOGGLE SWITCH */}
+                        <div className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 ${formData.canManageFiado ? 'bg-green-500' : 'bg-gray-300'}`}>
+                            <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${formData.canManageFiado ? 'translate-x-6' : 'translate-x-0'}`}></div>
                         </div>
                     </div>
                 </div>

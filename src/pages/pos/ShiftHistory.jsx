@@ -140,7 +140,7 @@ export default function ShiftHistory() {
       if (item._type === 'manual') {
         // Detalle de ventas manuales del grupo
         const sales = item.sales;
-        let cash = 0, qr = 0, card = 0, transfer = 0;
+        let cash = 0, qr = 0, card = 0, transfer = 0, credit = 0;
         let profitCalc = 0, totalDiscounts = 0;
 
         sales.forEach(sale => {
@@ -149,6 +149,7 @@ export default function ShiftHistory() {
           else if (sale.paymentMethod === 'qr')  qr       += total;
           else if (sale.paymentMethod === 'card') card     += total;
           else if (sale.paymentMethod === 'transfer') transfer += total;
+          else if (sale.paymentMethod === 'fiado') credit  += total;
 
           totalDiscounts += parseFloat(sale.discountTotal || 0);
 
@@ -159,7 +160,7 @@ export default function ShiftHistory() {
         setShiftDetails({
           cashTotal:        cash,
           digitalTotal:     qr + card + transfer,
-          breakdown:        { cash, qr, card, transfer },
+          breakdown:        { cash, qr, card, transfer, credit },
           ticketCount:      sales.length,
           calculatedProfit: profitCalc,
           totalDiscounts,
@@ -173,7 +174,7 @@ export default function ShiftHistory() {
         const q    = query(collection(db, 'sales'), where('shiftId', '==', item.id));
         const snap = await getDocs(q);
 
-        let cash = 0, qr = 0, card = 0, transfer = 0;
+        let cash = 0, qr = 0, card = 0, transfer = 0, credit = 0;
         let profitCalc = 0, totalDiscounts = 0;
 
         snap.docs.forEach(d => {
@@ -183,6 +184,7 @@ export default function ShiftHistory() {
           else if (sale.paymentMethod === 'qr')  qr       += total;
           else if (sale.paymentMethod === 'card') card     += total;
           else if (sale.paymentMethod === 'transfer') transfer += total;
+          else if (sale.paymentMethod === 'fiado') credit  += total;
 
           totalDiscounts += (sale.discountTotal || 0);
           const sp = sale.items?.reduce((a, i) => a + (((i.price||0)-(i.cost||0))*(i.quantity||0)), 0) || 0;
@@ -192,7 +194,7 @@ export default function ShiftHistory() {
         setShiftDetails({
           cashTotal:        cash,
           digitalTotal:     qr + card + transfer,
-          breakdown:        { cash, qr, card, transfer },
+          breakdown:        { cash, qr, card, transfer, credit },
           ticketCount:      snap.size,
           calculatedProfit: profitCalc,
           totalDiscounts,
@@ -481,6 +483,11 @@ export default function ShiftHistory() {
                             <div className="border-t border-dashed border-gray-300 my-2 pt-2 flex justify-between font-bold text-blue-600">
                               <span>TOTAL:</span><span>₲ {shiftDetails.digitalTotal.toLocaleString()}</span>
                             </div>
+                            {shiftDetails.breakdown.credit > 0 && (
+                              <div className="border-t border-dashed border-gray-300 my-2 pt-2 flex justify-between font-bold text-amber-600">
+                                <span>Fiado (pendiente):</span><span>₲ {shiftDetails.breakdown.credit.toLocaleString()}</span>
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -533,7 +540,7 @@ export default function ShiftHistory() {
                                     <td className="px-4 py-2 text-gray-600">{sale.userName}</td>
                                     <td className="px-4 py-2">
                                       <span className="bg-gray-100 px-2 py-0.5 rounded-full text-gray-600 font-medium">
-                                        {{ cash: 'Efectivo', qr: 'QR', card: 'Tarjeta', transfer: 'Transf.' }[sale.paymentMethod] || '-'}
+                                        {{ cash: 'Efectivo', qr: 'QR', card: 'Tarjeta', transfer: 'Transf.', fiado: 'Fiado' }[sale.paymentMethod] || '-'}
                                       </span>
                                     </td>
                                     <td className="px-4 py-2 text-right font-black text-gray-800">

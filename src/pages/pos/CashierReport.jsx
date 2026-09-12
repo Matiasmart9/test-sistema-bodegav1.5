@@ -21,6 +21,7 @@ const PAYMENT_LABELS = {
   qr:       'QR',
   card:     'Tarjeta',
   transfer: 'Transferencia',
+  fiado:    'Fiado',
 };
 
 export default function CashierReport() {
@@ -67,7 +68,7 @@ export default function CashierReport() {
             netSales:      0,
             costOfGoods:   0,
             grossProfit:   0,
-            paymentBreakdown: { cash: 0, qr: 0, card: 0, transfer: 0 },
+            paymentBreakdown: { cash: 0, qr: 0, card: 0, transfer: 0, fiado: 0 },
             topProducts:   {},  // { name: { qty, revenue } }
             dailyMap:      {},  // { 'dd/mm/yy': { tickets, net } }
           };
@@ -176,6 +177,7 @@ export default function CashierReport() {
       'QR (₲)':            Math.round(c.paymentBreakdown.qr),
       'Tarjeta (₲)':       Math.round(c.paymentBreakdown.card),
       'Transferencia (₲)': Math.round(c.paymentBreakdown.transfer),
+      'Fiado (₲)':         Math.round(c.paymentBreakdown.fiado),
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), 'Resumen Cajeros');
 

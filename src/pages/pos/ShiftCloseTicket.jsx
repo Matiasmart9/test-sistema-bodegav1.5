@@ -28,7 +28,7 @@ export default function ShiftCloseTicket({ shiftData, salesTotal, expensesTotal 
           query(collection(db, 'sales'), where('shiftId', '==', shiftData.id))
         );
 
-        let cash = 0, qr = 0, card = 0, transfer = 0;
+        let cash = 0, qr = 0, card = 0, transfer = 0, credit = 0;
         let canceledCount = 0, canceledTotal = 0, discountTotal = 0, ticketCount = 0;
         let totalCost = 0; // Costo de mercadería vendida (COGS)
 
@@ -41,6 +41,7 @@ export default function ShiftCloseTicket({ shiftData, salesTotal, expensesTotal 
           if      (s.paymentMethod === 'qr')       qr       += net;
           else if (s.paymentMethod === 'card')     card     += net;
           else if (s.paymentMethod === 'transfer') transfer += net;
+          else if (s.paymentMethod === 'fiado')    credit   += net;
           else                                     cash     += net;
 
           // Sumar costo de cada ítem vendido
@@ -49,7 +50,7 @@ export default function ShiftCloseTicket({ shiftData, salesTotal, expensesTotal 
           });
         });
 
-        setShiftDetail({ ticketCount, canceledCount, canceledTotal, discountTotal, cash, qr, card, transfer, totalCost });
+        setShiftDetail({ ticketCount, canceledCount, canceledTotal, discountTotal, cash, qr, card, transfer, credit, totalCost });
       } catch (e) { console.error(e); }
       finally { setLoading(false); }
     };
@@ -106,9 +107,12 @@ export default function ShiftCloseTicket({ shiftData, salesTotal, expensesTotal 
         <Row label="  QR:"             value={g(shiftDetail?.qr       || 0)} indent />
         <Row label="  Tarjeta:"        value={g(shiftDetail?.card     || 0)} indent />
         <Row label="  Transferencia:"  value={g(shiftDetail?.transfer || 0)} indent />
+        {(shiftDetail?.credit || 0) > 0 && (
+          <Row label="  Fiado (pendiente cobro):" value={g(shiftDetail.credit)} color="text-orange-600" indent />
+        )}
       </div>
       <div className="flex justify-between font-black text-xs mt-1.5 pt-1.5 border-t border-gray-200">
-        <span>TOTAL COBRADO:</span>
+        <span>TOTAL VENDIDO:</span>
         <span className="text-green-700">{g(salesNet)}</span>
       </div>
       {(shiftDetail?.discountTotal || 0) > 0 && (

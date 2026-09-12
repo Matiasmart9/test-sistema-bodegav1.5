@@ -2,14 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import {
   collection, query, where, getDocs, doc,
-  updateDoc, increment, addDoc, getDoc
+  updateDoc, increment, addDoc, getDoc, writeBatch
 } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import {
   Receipt, Loader2, Printer, Search, User,
   FileSpreadsheet, Calendar, TrendingUp, Ban,
   AlertTriangle, TrendingDown, X, Info,
-  ChevronLeft, ChevronsLeft, ChevronRight, ChevronsRight
+  ChevronLeft, ChevronsLeft, ChevronRight, ChevronsRight, HandCoins
 } from 'lucide-react';
 import TicketInvoice from './TicketInvoice';
 import * as XLSX from 'xlsx';
@@ -203,16 +203,40 @@ export default function SalesHistory() {
   const _executeCancelSale = async (sale) => {
     setLoading(true);
     try {
+      // Devolver stock de producto (best-effort: los ids de variantes no son documentos propios)
       for (const item of sale.items) {
         await updateDoc(doc(db, 'products', item.id), {
           current_stock: increment(parseFloat(item.quantity)),
         }).catch(() => {});
       }
-      await updateDoc(doc(db, 'sales', sale.id), {
+
+      // Cargas manuales usan shiftId 'MANUAL_ENTRY' / 'unknown', que no son turnos reales
+      const shiftRef = (sale.shiftId && sale.shiftId !== 'MANUAL_ENTRY' && sale.shiftId !== 'unknown')
+        ? doc(db, 'shifts', sale.shiftId)
+        : null;
+      const shiftSnap = shiftRef ? await getDoc(shiftRef) : null;
+
+      // Sale + lotes FIFO + total cacheado del turno se actualizan atómicamente
+      // (todos son documentos que sabemos que existen, a diferencia del stock de arriba)
+      const salesBatch = writeBatch(db);
+      salesBatch.update(doc(db, 'sales', sale.id), {
         status:     'canceled',
         canceledAt: new Date(),
         canceledBy: userData.name,
       });
+      for (const item of sale.items) {
+        // Devolver las unidades a los lotes FIFO exactos que se consumieron en la venta
+        (item.batchConsumption || []).forEach(({ batchId, qty }) => {
+          salesBatch.update(doc(db, 'inventory_batches', batchId), {
+            qtyRemaining: increment(parseFloat(qty)),
+          });
+        });
+      }
+      if (shiftSnap?.exists()) {
+        salesBatch.update(shiftRef, { salesTotal: increment(-sale.total) });
+      }
+      await salesBatch.commit();
+
       fetchData();
       fetchGlobalBalance();
       sileo.success({ title: 'Ticket anulado correctamente.' });
@@ -274,6 +298,7 @@ export default function SalesHistory() {
   }, 0);
   const grossProfit  = netSales - totalCost;
   const totalExpenses= activeExpenses.reduce((a, e) => a + (parseFloat(e.amount) || 0), 0);
+  const totalFiado   = activeSales.filter(s => s.paymentMethod === 'fiado').reduce((a, s) => a + (s.total || 0), 0);
 
   // ───────────────────────────────────────────────────────────────────────────
   // EXCEL
@@ -307,6 +332,7 @@ export default function SalesHistory() {
                              : item.paymentMethod === 'qr'   ? 'QR'
                              : item.paymentMethod === 'card' ? 'Tarjeta'
                              : item.paymentMethod === 'transfer' ? 'Transferencia'
+                             : item.paymentMethod === 'fiado' ? 'Fiado'
                              : item.paymentMethod || '-',
           'Subtotal':          subtotal,
           'Descuento':         descuento,
@@ -417,7 +443,7 @@ export default function SalesHistory() {
   // HELPERS
   // ───────────────────────────────────────────────────────────────────────────
   const getMethodName = (m) =>
-    ({ cash: 'Efectivo', qr: 'QR', card: 'Tarjeta', transfer: 'Transferencia' }[m] || 'Otro');
+    ({ cash: 'Efectivo', qr: 'QR', card: 'Tarjeta', transfer: 'Transferencia', fiado: 'Fiado' }[m] || 'Otro');
 
   // Tarjeta KPI con tooltip
   const KpiCard = ({ title, value, colorClass, icon: Icon, tooltip }) => (
@@ -729,7 +755,7 @@ export default function SalesHistory() {
       </div>
 
       {/* ── KPI CARDS DEL PERÍODO ─────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
         <KpiCard
           title="Ventas Brutas"    value={grossSales}     colorClass="text-gray-800"
           tooltip="La suma de todas las ventas antes de descuentos y reembolsos."
@@ -751,6 +777,11 @@ export default function SalesHistory() {
           title="Egresos (Gastos)" value={totalExpenses}  colorClass="text-red-500"
           tooltip="Total de gastos operativos registrados en este periodo."
           icon={TrendingDown}
+        />
+        <KpiCard
+          title="Fiados"           value={totalFiado}     colorClass="text-amber-600"
+          tooltip="Total vendido a crédito (fiado) en este periodo. Este dinero aún no fue cobrado y no forma parte del efectivo en caja."
+          icon={HandCoins}
         />
       </div>
 

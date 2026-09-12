@@ -11,7 +11,7 @@ import {
   Search, ShoppingCart, Trash2, Plus, Minus, CreditCard, LogOut,
   Clock, DollarSign, Barcode, TrendingDown, Printer, X, Tag,
   Store, MoreVertical, Ban, RefreshCcw, AlertCircle, Loader2, PrinterCheck,
-  Package, WifiOff, ClipboardCheck
+  Package, WifiOff, ClipboardCheck, HandCoins
 } from 'lucide-react';
 import PaymentModal from './PaymentModal';
 import { formatTime } from '../../utils/dateUtils';
@@ -22,6 +22,7 @@ import WeatherWidget from '../../components/ui/WeatherWidget';
 import { sileo } from 'sileo';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import { printTicketService } from '../../utils/printUtils';
+import CreditPaymentModal from './CreditPaymentModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER: genera el próximo ID de ticket usando transacción atómica en Firestore
@@ -84,6 +85,7 @@ export default function PosTerminal() {
   const canRegisterExpenses          = effectiveUser?.role === 'admin' || effectiveUser?.canRegisterExpenses;
   const canManageInventorySummarized = effectiveUser?.role === 'admin' || effectiveUser?.canManageInventorySummarized;
   const canCheckCashierInventory     = effectiveUser?.role === 'admin' || effectiveUser?.canCheckCashierInventory;
+  const canManageFiado               = effectiveUser?.role === 'admin' || effectiveUser?.canManageFiado;
   const hasInventoryAccess           = canManageInventorySummarized || canCheckCashierInventory;
 
   // Logout adaptado: si es cajero (localStorage), limpia solo pos_user
@@ -117,6 +119,7 @@ export default function PosTerminal() {
   const [appliedDiscounts,  setAppliedDiscounts]  = useState([]);
   const [showOptionsMenu,   setShowOptionsMenu]   = useState(false);
   const [showVoidModal,     setShowVoidModal]     = useState(false);
+  const [showCreditModal,   setShowCreditModal]   = useState(false);
   const [recentSales,       setRecentSales]       = useState([]);
   const [showReprintModal,  setShowReprintModal]  = useState(false);
   const [reprintSales,      setReprintSales]      = useState([]);
@@ -463,6 +466,13 @@ export default function PosTerminal() {
           // Producto simple no en memoria
           stockBatch.update(doc(db, 'products', item.id), { current_stock: increment(item.quantity) });
         }
+
+        // Devolver las unidades a los lotes FIFO exactos que se consumieron en la venta
+        (item.batchConsumption || []).forEach(({ batchId, qty }) => {
+          stockBatch.update(doc(db, 'inventory_batches', batchId), {
+            qtyRemaining: increment(parseFloat(qty)),
+          });
+        });
       }
       await stockBatch.commit();
 
@@ -569,6 +579,52 @@ export default function PosTerminal() {
 
   const finalTotalAmount = Math.max(0, subTotalAmount - discountTotal);
 
+  // ─── Costeo FIFO ─────────────────────────────────────────────────────────
+  // Consume el stock de los lotes de compra más antiguos primero y devuelve
+  // el costo real ponderado de esa línea + qué lotes se descontaron (para
+  // poder revertirlos exactamente si la venta se anula).
+  const resolveFifoCost = async (item) => {
+    const qtyNeeded    = parseFloat(item.quantity) || 0;
+    const fallbackCost = parseFloat(item.cost || 0);
+
+    const q = query(
+      collection(db, 'inventory_batches'),
+      where('productId', '==', item.originalId),
+      where('variantIndex', '==', item.isVariant ? item.variantIndex : null)
+    );
+    const snap = await getDocs(q);
+    const batches = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(b => parseFloat(b.qtyRemaining || 0) > 0)
+      .sort((a, b) => {
+        const da = a.entryDate?.toDate ? a.entryDate.toDate() : new Date(a.entryDate);
+        const dbb = b.entryDate?.toDate ? b.entryDate.toDate() : new Date(b.entryDate);
+        return da - dbb;
+      });
+
+    let remaining = qtyNeeded;
+    let costAccum = 0;
+    const batchConsumption = [];
+
+    for (const b of batches) {
+      if (remaining <= 0) break;
+      const take = Math.min(parseFloat(b.qtyRemaining || 0), remaining);
+      if (take <= 0) continue;
+      costAccum += take * parseFloat(b.unitCost || 0);
+      batchConsumption.push({ batchId: b.id, qty: take });
+      remaining -= take;
+    }
+
+    // Sin lotes suficientes (stock heredado de antes de esta función) —
+    // el resto se costea con el costo de referencia del producto.
+    if (remaining > 0) costAccum += remaining * fallbackCost;
+
+    return {
+      cost: qtyNeeded > 0 ? costAccum / qtyNeeded : 0,
+      batchConsumption,
+    };
+  };
+
   // ─── Procesamiento de venta ──────────────────────────────────────────────
   const handleProcessSale = async (paymentDetails) => {
     if (cart.length === 0) return null;
@@ -577,9 +633,11 @@ export default function PosTerminal() {
       // Número de ticket desde Firestore (atómico)
       const ticketId = await generateTicketId(db);
 
+      const fifoResults = await Promise.all(cart.map(resolveFifoCost));
+
       let totalCost = 0;
-      const itemsProcessed = cart.map(item => {
-        const cost = parseFloat(item.cost || 0);
+      const itemsProcessed = cart.map((item, idx) => {
+        const cost = fifoResults[idx].cost;
         const qty  = parseFloat(item.quantity || 0);
         totalCost += cost * qty;
         return {
@@ -587,9 +645,10 @@ export default function PosTerminal() {
           name:    item.name,
           quantity: item.quantity,
           price:   item.price,
-          cost:    item.cost || 0,
+          cost,
           tax:     item.tax || 10,
           soldBy:  item.soldBy,
+          batchConsumption: fifoResults[idx].batchConsumption,
         };
       });
 
@@ -605,9 +664,10 @@ export default function PosTerminal() {
         appliedDiscounts,
         total:            finalTotalAmount,
         paymentMethod:    paymentDetails.method,
-        amountReceived:   parseFloat(paymentDetails.amountPaid || finalTotalAmount),
+        amountReceived:   paymentDetails.method === 'fiado' ? 0 : parseFloat(paymentDetails.amountPaid || finalTotalAmount),
         change:           paymentDetails.change,
         client:           paymentDetails.client || { name: 'SIN NOMBRE', ruc: 'SIN RUC' },
+        clientId:         paymentDetails.client?.id || null,
         items:            itemsProcessed,
         status:           'completed',
       };
@@ -654,6 +714,16 @@ export default function PosTerminal() {
           });
         }
       }
+
+      // Descontar de los lotes FIFO efectivamente consumidos
+      itemsProcessed.forEach(item => {
+        (item.batchConsumption || []).forEach(({ batchId, qty }) => {
+          stockBatch.update(doc(db, 'inventory_batches', batchId), {
+            qtyRemaining: increment(-qty),
+          });
+        });
+      });
+
       await stockBatch.commit();
 
       return {
@@ -860,7 +930,7 @@ export default function PosTerminal() {
     );
   }
 
-  const showOptionsDropdown = canRegisterExpenses || canManageInventorySummarized || canCheckCashierInventory;
+  const showOptionsDropdown = canRegisterExpenses || canManageInventorySummarized || canCheckCashierInventory || canManageFiado;
 
   // ── INTERFAZ PRINCIPAL ────────────────────────────────────────────────────
   return (
@@ -891,6 +961,14 @@ export default function PosTerminal() {
           onClose={() => setShowPaymentModal(false)}
           onProcessPayment={handleProcessSale}
           onFinalize={(soldCart) => handleFinalizeSale(soldCart || cart)}
+          allowFiado={canManageFiado}
+        />
+      )}
+
+      {showCreditModal && (
+        <CreditPaymentModal
+          onClose={() => setShowCreditModal(false)}
+          cashier={effectiveUser}
         />
       )}
 
@@ -1231,6 +1309,15 @@ export default function PosTerminal() {
                       >
                         <div className="bg-emerald-100 p-1.5 rounded-lg"><ClipboardCheck size={16}/></div>
                         Inventario Cajero
+                      </button>
+                    )}
+                    {canManageFiado && (
+                      <button
+                        onClick={() => { setShowCreditModal(true); setShowOptionsMenu(false); }}
+                        className="w-full text-left px-4 py-3.5 hover:bg-amber-50 text-amber-700 font-bold text-sm flex items-center gap-3 border-t border-gray-100 transition-colors"
+                      >
+                        <div className="bg-amber-100 p-1.5 rounded-lg"><HandCoins size={16}/></div>
+                        Cobrar Fiado
                       </button>
                     )}
                   </div>

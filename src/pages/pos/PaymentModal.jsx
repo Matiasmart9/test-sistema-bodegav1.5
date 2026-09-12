@@ -6,7 +6,7 @@ import TicketInvoice from './TicketInvoice';
 import { formatGuaranies, parseGuaraniesStr } from '../../utils/moneyUtils';
 import { printTicketService } from '../../utils/printUtils';
 
-export default function PaymentModal({ total, cart, onClose, onProcessPayment, onFinalize }) {
+export default function PaymentModal({ total, cart, onClose, onProcessPayment, onFinalize, allowFiado }) {
   const [amountPaid, setAmountPaid] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [step, setStep] = useState(1); 
@@ -24,7 +24,11 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
 
   // VALORES NUMÉRICOS
   const numericReceived = parseFloat(amountPaid) || 0;
-  const isValidPayment = paymentMethod === 'cash' ? (amountPaid === '' || numericReceived >= total) : true;
+  const isValidPayment = paymentMethod === 'cash'
+    ? (amountPaid === '' || numericReceived >= total)
+    : paymentMethod === 'fiado'
+      ? !!selectedClient
+      : true;
   const changeAmount = paymentMethod === 'cash' && numericReceived > total ? numericReceived - total : 0;
 
   // BUSCAR CLIENTES
@@ -84,7 +88,7 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
       
       const paymentDetails = {
           method: paymentMethod,
-          amountPaid: paymentMethod === 'cash' ? (amountPaid || total) : total,
+          amountPaid: paymentMethod === 'cash' ? (amountPaid || total) : paymentMethod === 'fiado' ? 0 : total,
           change: changeAmount,
           client: finalClient || { name: 'CONSUMIDOR FINAL', ruc: 'X' }
       };
@@ -215,14 +219,21 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
                       { id: 'cash', label: 'Efectivo', icon: '💵' },
                       { id: 'qr', label: 'QR Simple', icon: '📱' },
                       { id: 'card', label: 'Tarjeta', icon: '💳' },
-                      { id: 'transfer', label: 'Transf.', icon: '🏦' }
+                      { id: 'transfer', label: 'Transf.', icon: '🏦' },
+                      ...(allowFiado ? [{ id: 'fiado', label: 'Fiado', icon: '📒' }] : []),
                   ].map((m) => (
                       <button
                           key={m.id}
-                          onClick={() => setPaymentMethod(m.id)}
+                          onClick={() => {
+                              setPaymentMethod(m.id);
+                              if (m.id === 'fiado') {
+                                  setClientMode('search');
+                                  setIsCreatingClient(false);
+                              }
+                          }}
                           className={`w-full p-3 rounded-xl flex items-center gap-3 font-bold transition-all border
-                              ${paymentMethod === m.id 
-                                  ? 'border-green-500 bg-green-50 text-green-700 shadow-sm' 
+                              ${paymentMethod === m.id
+                                  ? 'border-green-500 bg-green-50 text-green-700 shadow-sm'
                                   : 'border-transparent bg-white text-gray-500 hover:bg-gray-100'}`}
                       >
                           <span className="text-lg">{m.icon}</span> <span className="text-sm">{m.label}</span>
@@ -245,26 +256,34 @@ export default function PaymentModal({ total, cart, onClose, onProcessPayment, o
                           <div className="mb-6">
                               <div className="flex justify-between items-center mb-3">
                                   <h3 className="font-bold text-gray-700 flex items-center gap-2 text-sm">
-                                      <User size={18} className="text-green-600"/> Datos de Facturación
+                                      <User size={18} className="text-green-600"/> {paymentMethod === 'fiado' ? 'Cliente Fiado' : 'Datos de Facturación'}
                                   </h3>
-                                  <div className="flex bg-gray-100 p-1 rounded-lg">
-                                      <button 
-                                          onClick={() => { setClientMode('final'); setSelectedClient(null); setIsCreatingClient(false); }}
-                                          className={`px-3 py-1 text-[10px] font-bold rounded-md transition-colors ${clientMode === 'final' ? 'bg-white shadow text-green-700' : 'text-gray-500'}`}
-                                      >
-                                          Ticket
-                                      </button>
-                                      <button 
-                                          onClick={() => setClientMode('search')}
-                                          className={`px-3 py-1 text-[10px] font-bold rounded-md transition-colors ${clientMode === 'search' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}
-                                      >
-                                          Factura
-                                      </button>
-                                  </div>
+                                  {paymentMethod !== 'fiado' && (
+                                      <div className="flex bg-gray-100 p-1 rounded-lg">
+                                          <button
+                                              onClick={() => { setClientMode('final'); setSelectedClient(null); setIsCreatingClient(false); }}
+                                              className={`px-3 py-1 text-[10px] font-bold rounded-md transition-colors ${clientMode === 'final' ? 'bg-white shadow text-green-700' : 'text-gray-500'}`}
+                                          >
+                                              Ticket
+                                          </button>
+                                          <button
+                                              onClick={() => setClientMode('search')}
+                                              className={`px-3 py-1 text-[10px] font-bold rounded-md transition-colors ${clientMode === 'search' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}
+                                          >
+                                              Factura
+                                          </button>
+                                      </div>
+                                  )}
                               </div>
 
+                              {paymentMethod === 'fiado' && (
+                                  <div className="mb-3 p-2.5 bg-amber-50 border border-amber-200 text-amber-700 rounded-lg text-xs font-medium">
+                                      Una venta fiada necesita un cliente — no se puede vender "a Consumidor Final".
+                                  </div>
+                              )}
+
                               {/* MODO: CONSUMIDOR FINAL */}
-                              {clientMode === 'final' && (
+                              {clientMode === 'final' && paymentMethod !== 'fiado' && (
                                   <div className="p-3 bg-gray-50 rounded-lg border border-dashed border-gray-300 text-center text-gray-500 text-xs font-medium">
                                       Se emitirá ticket a: <span className="font-bold text-gray-700">CONSUMIDOR FINAL</span>
                                   </div>

@@ -220,6 +220,24 @@ export default function StockEntry() {
         totalUnits: entryCart.reduce((acc, i) => acc + parseFloat(i.qtyIn), 0),
       });
 
+      // 3.5. Crear un lote FIFO por cada producto ingresado (costeo por lote)
+      await Promise.all(entryCart.map(item => {
+        const qty = parseFloat(item.qtyIn);
+        return addDoc(collection(db, 'inventory_batches'), {
+          productId:    item.originalId,
+          variantIndex: item.isVariant ? item.variantIndex : null,
+          productName:  item.name,
+          qtyOriginal:  qty,
+          qtyRemaining: qty,
+          unitCost:     parseFloat(item.newCost) || 0,
+          supplier,
+          invoiceNo:    invoiceNo.trim() || null,
+          entryDate,
+          stockEntryId: entryDoc.id,
+          createdAt:    new Date(),
+        });
+      }));
+
       if (totalCost && parseFloat(totalCost) > 0) {
         await addDoc(collection(db, 'shift_movements'), {
           shiftId: 'ADMIN_ENTRY',

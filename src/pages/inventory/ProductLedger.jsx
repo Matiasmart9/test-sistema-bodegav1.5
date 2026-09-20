@@ -60,7 +60,7 @@ export default function ProductLedger() {
 
   const handleDownload = () => {
     const excelData = filtered.map(b => ({
-      'Fecha':              formatDateTime(b.entryDateObj),
+      'Fecha':              formatDateTime(b.entryDateObj, { hourCycle: 'h23' }),
       'Producto':           b.productName || '-',
       'Proveedor':          b.supplier || '-',
       'N° Factura':         b.invoiceNo || '-',
@@ -175,7 +175,7 @@ export default function ProductLedger() {
                 const consumed = parseFloat(b.qtyRemaining || 0) <= 0;
                 return (
                   <tr key={b.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-600">{formatDateTime(b.entryDateObj)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-gray-600">{formatDateTime(b.entryDateObj, { hourCycle: 'h23' })}</td>
                     <td className="px-6 py-4 font-bold text-gray-800">{b.productName || '-'}</td>
                     <td className="px-6 py-4 text-gray-600">{b.supplier || '-'}</td>
                     <td className="px-6 py-4 text-gray-500 font-mono text-xs">{b.invoiceNo || '-'}</td>

@@ -478,7 +478,6 @@ export default function PosTerminal() {
 
       sileo.success({ title: 'Venta anulada. Stock devuelto correctamente.' });
       setShowVoidModal(false);
-      await fetchProducts();
     } catch (error) {
       console.error(error);
       sileo.error({ title: 'Error al anular la venta.' });
@@ -747,19 +746,12 @@ export default function PosTerminal() {
     }
   };
 
-  const handleFinalizeSale = (soldCart) => {
+  // El stock se actualiza solo: `products` viene de un onSnapshot en tiempo real,
+  // que ya refleja la venta. Restarlo acá de nuevo lo descontaba dos veces en pantalla.
+  const handleFinalizeSale = () => {
     setCart([]);
     setAppliedDiscounts([]);
     setShowPaymentModal(false);
-    // Actualizar stock en memoria — sin re-descargar toda la colección de Firestore
-    setProducts(prev => prev.map(p => {
-      const soldItem = soldCart.find(c => c.id === p.id);
-      if (!soldItem) return p;
-      return {
-        ...p,
-        stock: Math.max(0, parseFloat(p.stock || 0) - soldItem.quantity),
-      };
-    }));
   };
 
   // ─── Operaciones del carrito ─────────────────────────────────────────────
@@ -960,7 +952,7 @@ export default function PosTerminal() {
           cart={cart}
           onClose={() => setShowPaymentModal(false)}
           onProcessPayment={handleProcessSale}
-          onFinalize={(soldCart) => handleFinalizeSale(soldCart || cart)}
+          onFinalize={handleFinalizeSale}
           allowFiado={canManageFiado}
         />
       )}

@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, doc, getDoc, runTransaction, deleteDoc } from "firebase/firestore";
+import { Link } from 'react-router-dom';
+import { collection, query, where, getDocs, doc, getDoc, runTransaction, deleteDoc, increment } from "firebase/firestore";
 import { db } from '../../firebase/config';
 import { History, MessageSquare, PlusCircle, X, Save, ArrowUp, ArrowDown, Minus, Trash2, Edit, AlertTriangle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { sileo } from 'sileo';
 import ConfirmModal from '../ui/ConfirmModal';
 import { formatDateTime, todayStrPY, toInputDatePY } from '../../utils/dateUtils';
-import { formatGuaranies, parseGuaraniesStr } from '../../utils/moneyUtils';
+import { planBatchConsumption } from '../../utils/fifoUtils';
 
 export default function ProductHistory({ productId, onStockUpdate }) {
   const { userData } = useAuth();
@@ -23,7 +24,6 @@ export default function ProductHistory({ productId, onStockUpdate }) {
   const [providerSearch, setProviderSearch] = useState('');
   const [showProviderDropdown, setShowProviderDropdown] = useState(false);
   const [supplier, setSupplier] = useState('');
-  const [totalCost, setTotalCost] = useState('');
 
   useEffect(() => {
     const fetchProviders = async () => {
@@ -48,7 +48,7 @@ export default function ProductHistory({ productId, onStockUpdate }) {
     variantIndex: -1,
     type: 'add',
     quantity: 0,
-    reason: 'Compra a Proveedor',
+    reason: 'Ajuste de Inventario',
     note: '',
     date: todayStr(),
   });
@@ -113,8 +113,7 @@ export default function ProductHistory({ productId, onStockUpdate }) {
 
     setEditingLog(log);
     setSupplier(log.supplierName || log.supplier || '');
-    setTotalCost('');
-    
+
     // Al editar, mostrar la fecha original del log como fecha editable (resolviendo error logDate indefinida)
     const logDate = log.date?.toDate ? log.date.toDate() : new Date(log.date);
     const logDateStr = toInputDatePY(logDate);
@@ -126,8 +125,7 @@ export default function ProductHistory({ productId, onStockUpdate }) {
   const handleOpenCreate = () => {
     setEditingLog(null);
     setSupplier('');
-    setTotalCost('');
-    setFormData({ variantIndex: -1, type: 'add', quantity: 0, reason: 'Compra a Proveedor', note: '', date: todayStr() });
+    setFormData({ variantIndex: -1, type: 'add', quantity: 0, reason: 'Ajuste de Inventario', note: '', date: todayStr() });
     setShowModal(true);
   };
 
@@ -175,6 +173,21 @@ export default function ProductHistory({ productId, onStockUpdate }) {
             change = newStock - currentStock;
           }
 
+          // Lotes FIFO: las salidas descuentan de los lotes más antiguos; al editar,
+          // primero se devuelve lo que ese mismo registro había descontado antes.
+          const oldConsumption = editingLog?.batchConsumption || [];
+          const restored = {};
+          oldConsumption.forEach(({ batchId, qty: q }) => { restored[batchId] = (restored[batchId] || 0) + q; });
+          const consumption = change < 0
+            ? await planBatchConsumption(productId, targetVariantIndex, Math.abs(change), restored)
+            : [];
+          oldConsumption.forEach(({ batchId, qty: q }) => {
+            transaction.update(doc(db, 'inventory_batches', batchId), { qtyRemaining: increment(q) });
+          });
+          consumption.forEach(({ batchId, qty: q }) => {
+            transaction.update(doc(db, 'inventory_batches', batchId), { qtyRemaining: increment(-q) });
+          });
+
           if (targetVariantIndex >= 0 && prod.variants) {
             const newVariants = [...prod.variants];
             newVariants[targetVariantIndex].stock = newStock;
@@ -204,7 +217,8 @@ export default function ProductHistory({ productId, onStockUpdate }) {
           const logPayload = {
             date: selectedDate, variantName, reason: formData.reason,
             note: formData.note,
-            change, finalStock: newStock
+            change, finalStock: newStock,
+            batchConsumption: consumption,
           };
 
           if (formData.type === 'add' || formData.reason === 'Devolución') {
@@ -227,19 +241,6 @@ export default function ProductHistory({ productId, onStockUpdate }) {
               productId,
               ...logPayload,
               user: userData?.name || 'Usuario'
-            });
-          }
-
-          if (formData.type === 'add' && totalCost && parseFloat(totalCost) > 0) {
-            const newExpenseRef = doc(collection(db, "shift_movements"));
-            transaction.set(newExpenseRef, {
-              shiftId: 'ADMIN_ENTRY',
-              type:    'expense',
-              amount:  parseFloat(totalCost),
-              reason:  `Compra Mercadería — Proveedor: ${supplier || 'No seleccionado'} (Ajuste Manual: ${variantName})`,
-              date:    selectedDate,
-              user:    userData?.name || 'Admin',
-              status:  'active',
             });
           }
         }),
@@ -374,7 +375,7 @@ export default function ProductHistory({ productId, onStockUpdate }) {
                   value={formData.reason}
                   onChange={e => setFormData({ ...formData, reason: e.target.value })}
                 >
-                  <option>Compra a Proveedor</option>
+                  {editingLog?.reason === 'Compra a Proveedor' && <option>Compra a Proveedor</option>}
                   <option>Ajuste de Inventario</option>
                   <option>Pérdida / Daño</option>
                   <option>Devolución</option>
@@ -382,7 +383,17 @@ export default function ProductHistory({ productId, onStockUpdate }) {
                 </select>
               </div>
 
-              {(formData.type === 'add' || formData.reason === 'Devolución') && (
+              {formData.type === 'add' && !editingLog && (
+                <div className="bg-blue-50 border border-blue-200 text-blue-800 text-xs p-3 rounded">
+                  ¿Es una compra de mercadería? Registrala en{' '}
+                  {userData?.role === 'admin'
+                    ? <Link to="/articulos/entrada" className="font-bold underline">Entrada Mercadería</Link>
+                    : <strong>Entrada Mercadería</strong>}
+                  {' '}para que quede con su costo y proveedor (FIFO). Acá solo se cargan ajustes y correcciones.
+                </div>
+              )}
+
+              {(formData.reason === 'Devolución' || formData.reason === 'Compra a Proveedor') && (
                 <div className="relative">
                   <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Proveedor *</label>
                   <div 
@@ -432,23 +443,6 @@ export default function ProductHistory({ productId, onStockUpdate }) {
                       </div>
                     </>
                   )}
-                </div>
-              )}
-
-              {formData.type === 'add' && (
-                <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Costo Total Compra (opcional)</label>
-                  <input 
-                    type="text" 
-                    inputMode="numeric"
-                    value={formatGuaranies(totalCost)} 
-                    onChange={e => setTotalCost(parseGuaraniesStr(e.target.value))}
-                    placeholder="Ej: 150.000"
-                    className="w-full border border-gray-200 rounded p-2 text-sm focus:outline-none focus:border-blue-400"
-                  />
-                  <p className="text-[10px] text-amber-600 font-bold mt-1 leading-snug">
-                    ⚠ Dejar vacío si no quiere que afecte al Capital Total Acumulado la compra de las mercaderías.
-                  </p>
                 </div>
               )}
 

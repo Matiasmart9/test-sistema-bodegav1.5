@@ -10,13 +10,14 @@ const LOCALE = 'es-PY';
  * Formatea una fecha con hora completa.
  * Ej: "24/05/2026, 09:30"
  */
-export const formatDateTime = (date) => {
+export const formatDateTime = (date, options = {}) => {
   if (!date) return '-';
   const d = date?.toDate ? date.toDate() : new Date(date);
   return new Intl.DateTimeFormat(LOCALE, {
     day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
     timeZone: TZ,
+    ...options,
   }).format(d);
 };
 

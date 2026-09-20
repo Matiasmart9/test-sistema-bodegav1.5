@@ -98,7 +98,7 @@ export default function PosLogin() {
           <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
             <Lock size={32} />
           </div>
-          <h1 className="text-2xl font-bold">Punto de Venta V2.4</h1>
+          <h1 className="text-2xl font-bold">Punto de Venta V2.5</h1>
           <p className="opacity-80 mt-1 text-sm">Acceso Seguro</p>
         </div>
 

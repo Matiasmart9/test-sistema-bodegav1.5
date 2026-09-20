@@ -90,7 +90,7 @@ export default function InventoryHistoryGlobal() {
   const totalPages = Math.ceil(filteredLogs.length / itemsPerPage);
 
   // Formateador de Fecha con timezone Paraguay
-  const formatDate = (date) => formatDateTime(date);
+  const formatDate = (date) => formatDateTime(date, { hourCycle: 'h23' });
 
   // Convertir Date a string yyyy-MM-dd en hora Paraguay para input type="date"
   const toInputDate = (date) => toInputDatePY(date);

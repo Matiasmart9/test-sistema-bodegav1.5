@@ -92,7 +92,11 @@ export default function ProductPriceHistory({ productId }) {
             <tbody className="divide-y divide-gray-50">
               {logs.map(log => (
                 <tr key={log.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="py-3 text-gray-500 whitespace-nowrap">{formatDate(log.date)}</td>
+                  <td className="py-3 text-gray-500 whitespace-nowrap">
+                    {formatDate(log.date)}
+                    {log.variantName && <span className="block text-[10px] text-gray-400">{log.variantName}</span>}
+                    {log.source === 'stock_entry' && <span className="block text-[10px] text-blue-500 font-bold">Entrada Mercadería</span>}
+                  </td>
                   <td className="py-3 text-right font-bold text-gray-800">{g(log.newPrice)}</td>
                   <td className="py-3 text-right">
                     <DeltaBadge oldVal={log.oldPrice} newVal={log.newPrice}/>

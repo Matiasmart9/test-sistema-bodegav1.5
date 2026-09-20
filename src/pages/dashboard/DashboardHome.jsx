@@ -4,7 +4,7 @@ import { db } from '../../firebase/config';
 import {
     ShoppingBag, Users, TrendingUp,
     ArrowUpRight, Package, Calendar, Loader2, Filter, AlertTriangle, ChevronRight, CheckCircle,
-    DollarSign, Barcode, TrendingDown, Receipt
+    DollarSign, Barcode, TrendingDown, Receipt, HandCoins
 } from 'lucide-react';
 import {
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
@@ -19,6 +19,7 @@ export default function DashboardHome() {
     const [allSales, setAllSales] = useState([]);
     const [allClientsCount, setAllClientsCount] = useState(0);
     const [lowStockItems, setLowStockItems] = useState([]);
+    const [creditDebt, setCreditDebt] = useState({ total: 0, debtors: 0 });
 
     // DATOS FILTRADOS
     const [stats, setStats] = useState({
@@ -48,16 +49,41 @@ export default function DashboardHome() {
                 const salesSnap = await getDocs(
                     query(salesRef, where('date', '>=', thirteenMonthsAgo), orderBy('date', 'desc'))
                 );
-                const salesData = salesSnap.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data(),
-                    dateObj: doc.data().date?.toDate ? doc.data().date.toDate() : new Date(doc.data().date)
-                }));
+                const salesData = salesSnap.docs
+                    .map(doc => ({
+                        id: doc.id,
+                        ...doc.data(),
+                        dateObj: doc.data().date?.toDate ? doc.data().date.toDate() : new Date(doc.data().date)
+                    }))
+                    .filter(s => s.status !== 'canceled');
                 setAllSales(salesData);
 
                 // B. CLIENTES — conteo del servidor (sin descargar documentos)
                 const clientsAgg = await getAggregateFromServer(collection(db, 'clients'), { total: count() });
                 setAllClientsCount(clientsAgg.data().total || 0);
+
+                // B2. DEUDA DE FIADOS — histórica (no depende del filtro de tiempo)
+                try {
+                    const [fiadoSnap, paymentsSnap] = await Promise.all([
+                        getDocs(query(salesRef, where('paymentMethod', '==', 'fiado'))),
+                        getDocs(collection(db, 'credit_payments')),
+                    ]);
+                    const balances = {};
+                    fiadoSnap.docs.forEach(d => {
+                        const s = d.data();
+                        if (s.status === 'canceled' || !s.clientId) return;
+                        balances[s.clientId] = (balances[s.clientId] || 0) + (parseFloat(s.total) || 0);
+                    });
+                    paymentsSnap.docs.forEach(d => {
+                        const p = d.data();
+                        if (p.status === 'voided' || !p.clientId) return;
+                        balances[p.clientId] = (balances[p.clientId] || 0) - (parseFloat(p.amount) || 0);
+                    });
+                    const owed = Object.values(balances).filter(b => b > 0);
+                    setCreditDebt({ total: owed.reduce((a, b) => a + b, 0), debtors: owed.length });
+                } catch (e) {
+                    console.error('Error deuda fiados:', e);
+                }
 
                 // C. PRODUCTOS (STOCK BAJO)
                 const productsSnap = await getDocs(collection(db, "products"));
@@ -250,7 +276,7 @@ export default function DashboardHome() {
                 <div>
                     <div className="flex items-center gap-2 mb-1.5">
                         <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border border-emerald-200">
-                            v2.4 Bodega el Grifo
+                            v2.5 Bodega el Grifo
                         </span>
                     </div>
                     <h1 className="text-3xl font-black text-slate-800 tracking-tight">Panel de Control</h1>
@@ -282,7 +308,7 @@ export default function DashboardHome() {
             </div>
 
             {/* KPI CARDS REDISEÑADAS A FORMATO PREMIUM LIGHT */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5 mb-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-8">
 
                 {/* CARD 1: VENTAS */}
                 <div className="bg-gradient-to-br from-white to-emerald-50/10 p-5 rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between group">
@@ -376,6 +402,30 @@ export default function DashboardHome() {
                             {allClientsCount}
                         </h3>
                         <p className="text-[10px] text-cyan-600 font-bold">Clientes guardados en total</p>
+                    </div>
+                </div>
+
+                {/* CARD 6: FIADOS (DEUDA PENDIENTE) */}
+                <div
+                    onClick={() => navigate('/fiados')}
+                    className="cursor-pointer bg-gradient-to-br from-white to-orange-50/10 p-5 rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between group"
+                >
+                    <div className="flex justify-between items-start mb-3">
+                        <div>
+                            <p className="text-slate-400 text-[9px] font-black uppercase tracking-wider mb-0.5">Cuentas por Cobrar</p>
+                            <h4 className="text-slate-800 font-extrabold text-xs">Fiados Pendientes</h4>
+                        </div>
+                        <div className="w-9 h-9 rounded-xl bg-orange-50 border border-orange-100 text-orange-600 flex items-center justify-center group-hover:scale-110 transition-transform duration-300 shadow-sm">
+                            <HandCoins size={16} />
+                        </div>
+                    </div>
+                    <div className="mt-2">
+                        <h3 className="text-2xl font-black text-orange-600 tracking-tight truncate leading-none mb-1">
+                            ₲ {creditDebt.total.toLocaleString('es-PY')}
+                        </h3>
+                        <p className="text-[10px] text-orange-500 font-bold">
+                            {creditDebt.debtors} {creditDebt.debtors === 1 ? 'cliente debe' : 'clientes deben'} · deuda total
+                        </p>
                     </div>
                 </div>
             </div>

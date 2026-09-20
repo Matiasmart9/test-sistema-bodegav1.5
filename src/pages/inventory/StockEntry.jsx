@@ -179,6 +179,29 @@ export default function StockEntry() {
 
       await batch.commit();
 
+      // 1.5. Historial de precios: solo cuando la compra cambió el costo del producto/variante
+      await Promise.all(entryCart.flatMap(item => {
+        const pd  = productDataMap[item.originalId];
+        const src = item.isVariant ? pd?.variants?.[item.variantIndex] : pd;
+        if (!src) return [];
+        const oldCost = parseFloat(src.cost || 0);
+        const newCost = parseFloat(item.newCost) || oldCost;
+        if (oldCost === newCost) return [];
+        const price = parseFloat(src.price || 0);
+        return [addDoc(collection(db, 'price_logs'), {
+          productId:   item.originalId,
+          productName: item.name,
+          variantName: item.isVariant ? src.name : null,
+          oldPrice:    price,
+          newPrice:    price,
+          oldCost,
+          newCost,
+          user:        userData?.name || 'Admin',
+          date:        entryDate,
+          source:      'stock_entry',
+        })];
+      }));
+
       // 2. Registrar logs de inventario
       await Promise.all(entryCart.map(item => {
         const pd  = productDataMap[item.originalId];

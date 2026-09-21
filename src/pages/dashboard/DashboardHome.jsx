@@ -64,15 +64,21 @@ export default function DashboardHome() {
 
                 // B2. DEUDA DE FIADOS — histórica (no depende del filtro de tiempo)
                 try {
-                    const [fiadoSnap, paymentsSnap] = await Promise.all([
+                    const [fiadoSnap, paymentsSnap, chargesSnap] = await Promise.all([
                         getDocs(query(salesRef, where('paymentMethod', '==', 'fiado'))),
                         getDocs(collection(db, 'credit_payments')),
+                        getDocs(collection(db, 'credit_charges')),
                     ]);
                     const balances = {};
                     fiadoSnap.docs.forEach(d => {
                         const s = d.data();
                         if (s.status === 'canceled' || !s.clientId) return;
                         balances[s.clientId] = (balances[s.clientId] || 0) + (parseFloat(s.total) || 0);
+                    });
+                    chargesSnap.docs.forEach(d => {
+                        const c = d.data();
+                        if (c.status === 'voided' || !c.clientId) return;
+                        balances[c.clientId] = (balances[c.clientId] || 0) + (parseFloat(c.amount) || 0);
                     });
                     paymentsSnap.docs.forEach(d => {
                         const p = d.data();

@@ -11,7 +11,7 @@ import {
   Search, ShoppingCart, Trash2, Plus, Minus, CreditCard, LogOut,
   Clock, DollarSign, Barcode, TrendingDown, Printer, X, Tag,
   Store, MoreVertical, Ban, RefreshCcw, AlertCircle, Loader2, PrinterCheck,
-  Package, WifiOff, ClipboardCheck, HandCoins
+  Package, WifiOff, ClipboardCheck, HandCoins, BookOpen
 } from 'lucide-react';
 import PaymentModal from './PaymentModal';
 import { formatTime } from '../../utils/dateUtils';
@@ -23,6 +23,7 @@ import { sileo } from 'sileo';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import { printTicketService } from '../../utils/printUtils';
 import CreditPaymentModal from './CreditPaymentModal';
+import ManualDebtModal from '../../components/credit/ManualDebtModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER: genera el próximo ID de ticket usando transacción atómica en Firestore
@@ -86,6 +87,7 @@ export default function PosTerminal() {
   const canManageInventorySummarized = effectiveUser?.role === 'admin' || effectiveUser?.canManageInventorySummarized;
   const canCheckCashierInventory     = effectiveUser?.role === 'admin' || effectiveUser?.canCheckCashierInventory;
   const canManageFiado               = effectiveUser?.role === 'admin' || effectiveUser?.canManageFiado;
+  const canManualFiado               = effectiveUser?.role === 'admin' || effectiveUser?.canManualFiado;
   const hasInventoryAccess           = canManageInventorySummarized || canCheckCashierInventory;
 
   // Logout adaptado: si es cajero (localStorage), limpia solo pos_user
@@ -120,6 +122,7 @@ export default function PosTerminal() {
   const [showOptionsMenu,   setShowOptionsMenu]   = useState(false);
   const [showVoidModal,     setShowVoidModal]     = useState(false);
   const [showCreditModal,   setShowCreditModal]   = useState(false);
+  const [showManualCreditModal, setShowManualCreditModal] = useState(false);
   const [recentSales,       setRecentSales]       = useState([]);
   const [showReprintModal,  setShowReprintModal]  = useState(false);
   const [reprintSales,      setReprintSales]      = useState([]);
@@ -922,7 +925,7 @@ export default function PosTerminal() {
     );
   }
 
-  const showOptionsDropdown = canRegisterExpenses || canManageInventorySummarized || canCheckCashierInventory || canManageFiado;
+  const showOptionsDropdown = canRegisterExpenses || canManageInventorySummarized || canCheckCashierInventory || canManageFiado || canManualFiado;
 
   // ── INTERFAZ PRINCIPAL ────────────────────────────────────────────────────
   return (
@@ -961,6 +964,14 @@ export default function PosTerminal() {
         <CreditPaymentModal
           onClose={() => setShowCreditModal(false)}
           cashier={effectiveUser}
+        />
+      )}
+
+      {showManualCreditModal && (
+        <ManualDebtModal
+          title="Carga Manual de Fiado"
+          user={effectiveUser}
+          onClose={() => setShowManualCreditModal(false)}
         />
       )}
 
@@ -1310,6 +1321,15 @@ export default function PosTerminal() {
                       >
                         <div className="bg-amber-100 p-1.5 rounded-lg"><HandCoins size={16}/></div>
                         Cobrar Fiado
+                      </button>
+                    )}
+                    {canManualFiado && (
+                      <button
+                        onClick={() => { setShowManualCreditModal(true); setShowOptionsMenu(false); }}
+                        className="w-full text-left px-4 py-3.5 hover:bg-amber-50 text-amber-700 font-bold text-sm flex items-center gap-3 border-t border-gray-100 transition-colors"
+                      >
+                        <div className="bg-amber-100 p-1.5 rounded-lg"><BookOpen size={16}/></div>
+                        Carga Manual de Fiado
                       </button>
                     )}
                   </div>

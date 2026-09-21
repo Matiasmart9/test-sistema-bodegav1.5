@@ -2,11 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { sileo } from 'sileo';
-import { HandCoins, Search, X, Loader2, Check, User } from 'lucide-react';
+import { HandCoins, Search, X, Loader2, Check, User, UserPlus, BookOpen } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { formatGuaranies, parseGuaraniesStr } from '../../utils/moneyUtils';
-import { fetchClientCredit, registerCreditPayment, voidCreditPayment } from '../../utils/creditUtils';
+import { fetchClientCredit, registerCreditPayment, voidCreditPayment, voidManualCharge } from '../../utils/creditUtils';
 import CreditHistoryList from '../../components/credit/CreditHistoryList';
+import ManualDebtModal from '../../components/credit/ManualDebtModal';
+import ManualDebtForm from '../../components/credit/ManualDebtForm';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 
 export default function CreditClientsList() {
@@ -22,12 +24,20 @@ export default function CreditClientsList() {
   const [saving, setSaving] = useState(false);
   const [voidingId, setVoidingId] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
+  const [showManualModal, setShowManualModal] = useState(false); // "Agregar Cliente" (deuda anterior)
+  const [showManualForm,  setShowManualForm]  = useState(false); // deuda manual dentro del detalle
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const salesSnap = await getDocs(query(collection(db, 'sales'), where('paymentMethod', '==', 'fiado')));
-      const clientIds = [...new Set(salesSnap.docs.map(d => d.data().clientId).filter(Boolean))];
+      const [salesSnap, chargesSnap] = await Promise.all([
+        getDocs(query(collection(db, 'sales'), where('paymentMethod', '==', 'fiado'))),
+        getDocs(collection(db, 'credit_charges')),
+      ]);
+      const clientIds = [...new Set([
+        ...salesSnap.docs.map(d => d.data().clientId),
+        ...chargesSnap.docs.map(d => d.data().clientId),
+      ].filter(Boolean))];
 
       const clientsSnap = await getDocs(collection(db, 'clients'));
       const clientsMap = {};
@@ -64,6 +74,7 @@ export default function CreditClientsList() {
     setSelected(row);
     setAmount('');
     setNote('');
+    setShowManualForm(false);
   };
 
   const refreshSelected = async () => {
@@ -121,6 +132,28 @@ export default function CreditClientsList() {
     });
   };
 
+  const handleVoidCharge = (charge) => {
+    setConfirmModal({
+      title: '¿Anular esta deuda anterior?',
+      description: `Se va a quitar ₲ ${parseFloat(charge.amount || 0).toLocaleString('es-PY')} de la deuda del cliente. Queda registrada como anulada en el historial.`,
+      confirmText: 'Sí, anular deuda',
+      variant: 'danger',
+      onConfirm: async () => {
+        setVoidingId(charge.id);
+        try {
+          await voidManualCharge(charge.id, { voidedBy: userData?.name || 'Admin' });
+          sileo.success({ title: 'Deuda anulada.' });
+          await refreshSelected();
+        } catch (e) {
+          console.error(e);
+          sileo.error({ title: 'Error al anular la deuda.' });
+        } finally {
+          setVoidingId(null);
+        }
+      },
+    });
+  };
+
   if (loading) {
     return (
       <div className="h-[60vh] flex items-center justify-center">
@@ -142,6 +175,12 @@ export default function CreditClientsList() {
           </h1>
           <p className="text-sm text-gray-500 mt-1">Deuda total pendiente de todos los clientes: <strong className="text-amber-700">₲ {totalDebt.toLocaleString('es-PY')}</strong></p>
         </div>
+        <button
+          onClick={() => setShowManualModal(true)}
+          className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-bold px-4 py-2.5 rounded-xl shadow-sm transition-all active:scale-95"
+        >
+          <UserPlus size={18}/> Agregar Cliente
+        </button>
       </div>
 
       {/* FILTROS */}
@@ -257,15 +296,46 @@ export default function CreditClientsList() {
                 </div>
               )}
 
+              {showManualForm ? (
+                <div className="mb-5 p-4 rounded-xl border border-amber-200 bg-amber-50/40">
+                  <p className="text-xs font-bold text-amber-800 uppercase mb-3 flex items-center gap-1.5">
+                    <BookOpen size={14}/> Agregar deuda manual a {selected.client.name}
+                  </p>
+                  <ManualDebtForm
+                    client={selected.client}
+                    user={userData}
+                    onCancel={() => setShowManualForm(false)}
+                    onSaved={async () => { setShowManualForm(false); await refreshSelected(); }}
+                  />
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowManualForm(true)}
+                  className="w-full mb-5 flex items-center justify-center gap-2 text-sm font-bold text-amber-700 border-2 border-dashed border-amber-300 rounded-xl py-2.5 hover:bg-amber-50 transition-colors"
+                >
+                  <BookOpen size={16}/> Agregar deuda manual
+                </button>
+              )}
+
               <CreditHistoryList
                 credit={selected.credit}
                 canVoid
                 voidingId={voidingId}
                 onVoidPayment={handleVoidPayment}
+                onVoidCharge={handleVoidCharge}
               />
             </div>
           </div>
         </div>
+      )}
+
+      {showManualModal && (
+        <ManualDebtModal
+          title="Agregar Cliente"
+          user={userData}
+          onClose={() => setShowManualModal(false)}
+          onSaved={loadData}
+        />
       )}
     </div>
   );

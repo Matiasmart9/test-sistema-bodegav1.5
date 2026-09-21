@@ -12,10 +12,10 @@ const MAX_ATTEMPTS = 3;
 // ── Saludo dinámico según la hora del día (texto + ícono + color) ────────────
 const getGreeting = () => {
   const h = new Date().getHours();
-  if (h < 6)  return { text: 'Buenas Noches', Icon: Moon,    color: 'text-indigo-400' };
-  if (h < 12) return { text: 'Buenos Días',   Icon: Sunrise, color: 'text-amber-400'  };
-  if (h < 19) return { text: 'Buenas Tardes', Icon: Sun,     color: 'text-orange-400' };
-  return              { text: 'Buenas Noches', Icon: Moon,    color: 'text-indigo-400' };
+  if (h < 6)  return { text: 'Buenas Noches', Icon: Moon,    color: 'text-indigo-400', anim: 'greet-moon'    };
+  if (h < 12) return { text: 'Buenos Días',   Icon: Sunrise, color: 'text-amber-400',  anim: 'greet-sunrise' };
+  if (h < 19) return { text: 'Buenas Tardes', Icon: Sun,     color: 'text-orange-400', anim: 'greet-sun'     };
+  return              { text: 'Buenas Noches', Icon: Moon,    color: 'text-indigo-400', anim: 'greet-moon'    };
 };
 
 // ── Burbujas ascendentes del panel izquierdo (config fija, look "chopp") ─────
@@ -239,6 +239,28 @@ export default function Login() {
         .animate-shake {
           animation: shakeError 0.45s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
         }
+
+        /* ── Ícono del saludo (sol / amanecer / luna) ─────────────────────── */
+        @keyframes sunSpin      { to { transform: rotate(360deg); } }
+        @keyframes sunriseRise  {
+          0%, 100% { transform: translateY(3px); }
+          50%      { transform: translateY(-5px); }
+        }
+        @keyframes moonSway     {
+          0%, 100% { transform: rotate(-10deg); }
+          50%      { transform: rotate(10deg); }
+        }
+        @keyframes iconGlow     {
+          0%, 100% { filter: drop-shadow(0 0 1px currentColor); }
+          50%      { filter: drop-shadow(0 0 9px currentColor); }
+        }
+        .greet-icon    { transform-origin: 50% 50%; }
+        .greet-sun     { animation: sunSpin 20s linear infinite, iconGlow 3.2s ease-in-out infinite; }
+        .greet-sunrise { animation: sunriseRise 3.6s ease-in-out infinite, iconGlow 3.6s ease-in-out infinite; }
+        .greet-moon    { animation: moonSway 5s ease-in-out infinite, iconGlow 4s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) {
+          .greet-icon { animation: none !important; }
+        }
       `}</style>
 
       {/* ── PANEL IZQUIERDO ──────────────────────────────────────────── */}
@@ -296,7 +318,7 @@ export default function Login() {
           {/* Título */}
           <div className="mb-10">
             <h3 className="text-5xl font-extrabold text-slate-900 mb-2 tracking-tight flex items-center gap-3">
-              <greeting.Icon size={40} className={`${greeting.color} shrink-0`} strokeWidth={2} />
+              <greeting.Icon size={40} className={`${greeting.color} ${greeting.anim} greet-icon shrink-0`} strokeWidth={2} />
               {greeting.text}
             </h3>
             <p className="text-slate-400 text-base font-medium">

@@ -23,7 +23,8 @@
     "react-router-dom": "^7.11.0",
     "recharts": "^3.6.0",
     "sileo": "^0.1.5",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "xlsx-js-style": "^1.2.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

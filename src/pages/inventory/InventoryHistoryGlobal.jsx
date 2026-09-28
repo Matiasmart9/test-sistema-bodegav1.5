@@ -185,12 +185,13 @@ export default function InventoryHistoryGlobal() {
                         <th className="px-6 py-4">Motivo</th>
                         <th className="px-6 py-4">Proveedor</th>
                         <th className="px-6 py-4 text-right">Ajuste</th>
+                        <th className="px-6 py-4 text-right">Costo Unit.</th>
                         <th className="px-6 py-4 text-right">Stock Final</th>
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                     {currentItems.length === 0 ? (
-                        <tr><td colSpan="6" className="p-8 text-center text-gray-400">No se encontraron registros</td></tr>
+                        <tr><td colSpan="8" className="p-8 text-center text-gray-400">No se encontraron registros</td></tr>
                     ) : (
                         currentItems.map((log) => (
                             <tr key={log.id} className="hover:bg-blue-50/30 transition-colors">
@@ -267,6 +268,9 @@ export default function InventoryHistoryGlobal() {
                                     <span className={`font-bold ${log.change > 0 ? 'text-green-600' : 'text-red-600'}`}>
                                         {log.change > 0 ? '+' : ''}{log.change}
                                     </span>
+                                </td>
+                                <td className="px-6 py-4 text-right text-gray-600">
+                                    {log.unitCost ? `₲ ${Math.round(log.unitCost).toLocaleString('es-PY')}` : '—'}
                                 </td>
                                 <td className="px-6 py-4 text-right font-medium text-gray-700">
                                     {log.finalStock}

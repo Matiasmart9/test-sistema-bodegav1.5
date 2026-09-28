@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, getDocs, writeBatch, doc } from 'firebase/firestore';
+import { collection, query, orderBy, getDocs, writeBatch, doc, increment } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { sileo } from 'sileo';
 import XLSX from 'xlsx-js-style';
@@ -70,11 +70,15 @@ export default function ProductLedger() {
 
   useEffect(() => { fetchAll(); }, []);
 
-  // ── Reconciliar stock inicial: crea un lote para la mercadería que ya
-  // existía antes de usar Entrada Mercadería, para que el stock de la ficha
-  // coincida con el de Lista de Productos. Usa el costo actual del producto
-  // como aproximación (no hay costo real de esa compra) y una fecha anterior
-  // a cualquier lote real, para que se consuma primero en el FIFO. ──────────
+  // ── Reconciliar lotes contra Lista de Productos, en los dos sentidos:
+  // (a) Falta lote — el stock actual es mayor a lo que suman los lotes (ej.:
+  //     mercadería que ya existía antes de usar Entrada Mercadería). Se crea
+  //     un lote con la diferencia, con el costo actual como referencia y una
+  //     fecha anterior a cualquier lote real, para que se consuma primero.
+  // (b) Sobran lotes — el stock actual es MENOR a lo que suman los lotes (ej.:
+  //     ventas viejas de Registro Manual que descontaron el stock del producto
+  //     pero nunca tocaron los lotes). Se descuenta el excedente de los lotes
+  //     existentes, del más antiguo al más nuevo, sin crear ni borrar lotes. ──
   const runReconciliation = async () => {
     setReconciling(true);
     try {
@@ -85,7 +89,7 @@ export default function ProductLedger() {
 
       const freshBatches = batchesSnap.docs.map(d => {
         const b = d.data();
-        return { ...b, entryDateObj: b.entryDate?.toDate ? b.entryDate.toDate() : new Date(b.entryDate) };
+        return { id: d.id, ...b, entryDateObj: b.entryDate?.toDate ? b.entryDate.toDate() : new Date(b.entryDate) };
       });
       const freshProducts = productsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
@@ -94,11 +98,18 @@ export default function ProductLedger() {
         ? new Date(Math.min(...freshBatches.map(b => b.entryDateObj.getTime())) - 24 * 60 * 60 * 1000)
         : new Date(2020, 0, 1);
 
-      // Stock remanente por lotes existentes, agrupado por producto/variante
-      const remainingByKey = {};
+      // Lotes agrupados por producto/variante, ordenados del más viejo al más nuevo
+      const batchesByKey = {};
       freshBatches.forEach(b => {
         const key = `${b.productId}|${b.variantIndex ?? 'null'}`;
-        remainingByKey[key] = (remainingByKey[key] || 0) + (parseFloat(b.qtyRemaining) || 0);
+        (batchesByKey[key] ||= []).push(b);
+      });
+      Object.values(batchesByKey).forEach(arr => arr.sort((a, b) => a.entryDateObj - b.entryDateObj));
+
+      // Stock remanente por lotes existentes, agrupado por producto/variante
+      const remainingByKey = {};
+      Object.entries(batchesByKey).forEach(([key, arr]) => {
+        remainingByKey[key] = arr.reduce((acc, b) => acc + (parseFloat(b.qtyRemaining) || 0), 0);
       });
 
       // Unidades a reconciliar: producto simple o cada variante activa
@@ -123,52 +134,80 @@ export default function ProductLedger() {
         }
       });
 
-      const toCreate = units
-        .map(u => {
-          const key = `${u.productId}|${u.variantIndex ?? 'null'}`;
-          const deficit = u.stock - (remainingByKey[key] || 0);
-          return { ...u, deficit };
-        })
-        .filter(u => u.deficit > 0.0001);
+      const toCreate  = []; // faltan lotes (deficit)
+      const toConsume = []; // sobran lotes (excedente): { ...u, excess, plan: [{batchId, qty}] }
 
-      if (toCreate.length === 0) {
+      units.forEach(u => {
+        const key = `${u.productId}|${u.variantIndex ?? 'null'}`;
+        const diff = u.stock - (remainingByKey[key] || 0);
+        if (diff > 0.0001) {
+          toCreate.push({ ...u, deficit: diff });
+        } else if (diff < -0.0001) {
+          let pending = -diff;
+          const plan = [];
+          for (const b of (batchesByKey[key] || [])) {
+            if (pending <= 0) break;
+            const avail = parseFloat(b.qtyRemaining) || 0;
+            if (avail <= 0) continue;
+            const take = Math.min(avail, pending);
+            plan.push({ batchId: b.id, qty: take });
+            pending -= take;
+          }
+          if (plan.length > 0) toConsume.push({ ...u, excess: -diff - pending, plan });
+        }
+      });
+
+      if (toCreate.length === 0 && toConsume.length === 0) {
         sileo.success({ title: 'No hay nada para reconciliar.', description: 'El stock de todos los productos ya coincide con sus lotes.' });
         return;
       }
 
-      // Escribir en tandas de 450 (límite de Firestore es 500 por batch)
-      for (let i = 0; i < toCreate.length; i += 450) {
-        const chunk = toCreate.slice(i, i + 450);
+      // Juntar todas las escrituras (crear lotes + descontar excedentes) y
+      // mandarlas en tandas de 450 (límite de Firestore es 500 por batch)
+      const writes = [
+        ...toCreate.map(u => ({ type: 'create', u })),
+        ...toConsume.flatMap(u => u.plan.map(p => ({ type: 'consume', batchId: p.batchId, qty: p.qty }))),
+      ];
+
+      for (let i = 0; i < writes.length; i += 450) {
+        const chunk = writes.slice(i, i + 450);
         const wb = writeBatch(db);
-        chunk.forEach(u => {
-          const ref = doc(collection(db, 'inventory_batches'));
-          wb.set(ref, {
-            productId:    u.productId,
-            variantIndex: u.variantIndex,
-            productName:  u.productName,
-            qtyOriginal:  u.deficit,
-            qtyRemaining: u.deficit,
-            unitCost:     u.cost,
-            supplier:     INITIAL_STOCK_SUPPLIER,
-            invoiceNo:    null,
-            entryDate:    anchor,
-            stockEntryId: null,
-            isInitialStock: true,
-            createdAt:    new Date(),
-          });
+        chunk.forEach(w => {
+          if (w.type === 'create') {
+            const ref = doc(collection(db, 'inventory_batches'));
+            wb.set(ref, {
+              productId:    w.u.productId,
+              variantIndex: w.u.variantIndex,
+              productName:  w.u.productName,
+              qtyOriginal:  w.u.deficit,
+              qtyRemaining: w.u.deficit,
+              unitCost:     w.u.cost,
+              supplier:     INITIAL_STOCK_SUPPLIER,
+              invoiceNo:    null,
+              entryDate:    anchor,
+              stockEntryId: null,
+              isInitialStock: true,
+              createdAt:    new Date(),
+            });
+          } else {
+            wb.update(doc(db, 'inventory_batches', w.batchId), { qtyRemaining: increment(-w.qty) });
+          }
         });
         await wb.commit();
       }
 
       const totalValor = toCreate.reduce((acc, u) => acc + u.deficit * u.cost, 0);
+      const partes = [];
+      if (toCreate.length)  partes.push(`${toCreate.length} lote(s) inicial(es) creado(s) (valor de referencia ${g(totalValor)})`);
+      if (toConsume.length) partes.push(`${toConsume.length} producto(s) con lotes corregidos hacia abajo`);
       sileo.success({
-        title: `Se generaron ${toCreate.length} lote(s) inicial(es).`,
-        description: `Valor de referencia: ${g(totalValor)}. Ya podés compararlo con Lista de Productos.`,
+        title: 'Lotes reconciliados con Lista de Productos.',
+        description: `${partes.join(' — ')}. Ya podés comparar Restante con el Stock.`,
       });
       await fetchAll();
     } catch (e) {
-      console.error('Error reconciliando stock inicial:', e);
-      sileo.error({ title: 'Error al generar los lotes iniciales.' });
+      console.error('Error reconciliando lotes:', e);
+      sileo.error({ title: 'Error al reconciliar los lotes.' });
     } finally {
       setReconciling(false);
     }
@@ -176,9 +215,9 @@ export default function ProductLedger() {
 
   const confirmReconciliation = () => {
     setConfirmModal({
-      title: '¿Generar lotes de stock inicial?',
-      description: 'Por cada producto donde el stock actual sea mayor a lo que suman sus lotes, se crea un lote con la diferencia, usando el costo actual como referencia (no el costo real de esa compra) y una fecha anterior a cualquier lote real, para que se consuma primero. No borra ni modifica ningún lote existente. Se puede ejecutar más de una vez sin duplicar.',
-      confirmText: 'Sí, generar lotes',
+      title: '¿Reconciliar lotes con Lista de Productos?',
+      description: 'Por cada producto donde el stock actual sea distinto a lo que suman sus lotes: si el stock es MAYOR, se crea un lote con la diferencia (costo actual como referencia, fecha anterior a cualquier lote real). Si el stock es MENOR — por ejemplo, ventas viejas que descontaron el stock pero no los lotes — se descuenta el excedente de los lotes más antiguos, sin crear ni borrar ninguno. No toca las ventas ya registradas. Se puede ejecutar más de una vez sin duplicar ni descontar de más.',
+      confirmText: 'Sí, reconciliar',
       variant: 'warning',
       onConfirm: runReconciliation,
     });
@@ -331,11 +370,11 @@ export default function ProductLedger() {
           <button
             onClick={confirmReconciliation}
             disabled={reconciling}
-            title="Genera un lote por la mercadería que ya existía antes de usar Entrada Mercadería, para que el stock coincida con Lista de Productos"
+            title="Ajusta los lotes para que el Restante de cada producto coincida con su Stock en Lista de Productos, en cualquiera de los dos sentidos"
             className="bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 px-4 py-2.5 rounded-lg flex items-center gap-2 shadow-sm transition-colors font-medium whitespace-nowrap disabled:opacity-50"
           >
             {reconciling ? <Loader2 size={18} className="animate-spin"/> : <RefreshCcw size={18}/>}
-            Generar Lote Inicial
+            Reconciliar Lotes
           </button>
           <button
             onClick={handleDownload}

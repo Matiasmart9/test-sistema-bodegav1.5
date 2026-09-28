@@ -146,12 +146,15 @@ export default function ProductHistory({ productId, onStockUpdate }) {
           let variantName = prod.name;
           let targetVariantIndex = formData.variantIndex;
 
+          let unitCost = 0;
           if (targetVariantIndex >= 0 && prod.variants) {
             const variant = prod.variants[targetVariantIndex];
             currentStock = parseInt(variant.stock) || 0;
             variantName = `${prod.name} / ${variant.name}`;
+            unitCost = parseFloat(variant.cost) || 0;
           } else {
             currentStock = parseInt(prod.current_stock) || 0;
+            unitCost = parseFloat(prod.cost) || 0;
           }
 
           if (editingLog) {
@@ -219,6 +222,7 @@ export default function ProductHistory({ productId, onStockUpdate }) {
             note: formData.note,
             change, finalStock: newStock,
             batchConsumption: consumption,
+            unitCost,
           };
 
           if (formData.type === 'add' || formData.reason === 'Devolución') {

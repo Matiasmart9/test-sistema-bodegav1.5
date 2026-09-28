@@ -16,6 +16,7 @@ import {
 import PaymentModal from './PaymentModal';
 import { formatTime } from '../../utils/dateUtils';
 import { formatGuaranies, parseGuaraniesStr } from '../../utils/moneyUtils';
+import { resolveFifoCost } from '../../utils/fifoUtils';
 import ShiftCloseTicket from './ShiftCloseTicket';
 import DiscountModal from './DiscountModal';
 import WeatherWidget from '../../components/ui/WeatherWidget';
@@ -581,52 +582,6 @@ export default function PosTerminal() {
 
   const finalTotalAmount = Math.max(0, subTotalAmount - discountTotal);
 
-  // ─── Costeo FIFO ─────────────────────────────────────────────────────────
-  // Consume el stock de los lotes de compra más antiguos primero y devuelve
-  // el costo real ponderado de esa línea + qué lotes se descontaron (para
-  // poder revertirlos exactamente si la venta se anula).
-  const resolveFifoCost = async (item) => {
-    const qtyNeeded    = parseFloat(item.quantity) || 0;
-    const fallbackCost = parseFloat(item.cost || 0);
-
-    const q = query(
-      collection(db, 'inventory_batches'),
-      where('productId', '==', item.originalId),
-      where('variantIndex', '==', item.isVariant ? item.variantIndex : null)
-    );
-    const snap = await getDocs(q);
-    const batches = snap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
-      .filter(b => parseFloat(b.qtyRemaining || 0) > 0)
-      .sort((a, b) => {
-        const da = a.entryDate?.toDate ? a.entryDate.toDate() : new Date(a.entryDate);
-        const dbb = b.entryDate?.toDate ? b.entryDate.toDate() : new Date(b.entryDate);
-        return da - dbb;
-      });
-
-    let remaining = qtyNeeded;
-    let costAccum = 0;
-    const batchConsumption = [];
-
-    for (const b of batches) {
-      if (remaining <= 0) break;
-      const take = Math.min(parseFloat(b.qtyRemaining || 0), remaining);
-      if (take <= 0) continue;
-      costAccum += take * parseFloat(b.unitCost || 0);
-      batchConsumption.push({ batchId: b.id, qty: take });
-      remaining -= take;
-    }
-
-    // Sin lotes suficientes (stock heredado de antes de esta función) —
-    // el resto se costea con el costo de referencia del producto.
-    if (remaining > 0) costAccum += remaining * fallbackCost;
-
-    return {
-      cost: qtyNeeded > 0 ? costAccum / qtyNeeded : 0,
-      batchConsumption,
-    };
-  };
-
   // ─── Procesamiento de venta ──────────────────────────────────────────────
   const handleProcessSale = async (paymentDetails) => {
     if (cart.length === 0) return null;
@@ -635,7 +590,7 @@ export default function PosTerminal() {
       // Número de ticket desde Firestore (atómico)
       const ticketId = await generateTicketId(db);
 
-      const fifoResults = await Promise.all(cart.map(resolveFifoCost));
+      const fifoResults = await Promise.all(cart.map(item => resolveFifoCost(db, item)));
 
       let totalCost = 0;
       const itemsProcessed = cart.map((item, idx) => {

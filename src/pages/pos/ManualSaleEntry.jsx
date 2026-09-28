@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import {
   collection, getDocs, addDoc, doc, getDoc,
-  runTransaction, writeBatch
+  runTransaction, writeBatch, increment
 } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import {
@@ -15,6 +15,7 @@ import DiscountModal from './DiscountModal';
 import { sileo } from 'sileo';
 import { todayStrPY } from '../../utils/dateUtils';
 import { formatGuaranies, parseGuaraniesStr } from '../../utils/moneyUtils';
+import { resolveFifoCost } from '../../utils/fifoUtils';
 
 // ── Helper: genera el próximo ticket (atómico, igual que PosTerminal) ─────────
 async function generateTicketId(db) {
@@ -212,12 +213,24 @@ export default function ManualSaleEntry() {
     try {
       const ticketId = await generateTicketId(db);
 
+      // Solo resolvemos el costo FIFO por lote si vamos a descontar stock:
+      // si el stock ya se consumió por otro lado, tampoco hay que tocar los lotes,
+      // porque ya se descontaron cuando ocurrió esa venta real.
+      const fifoResults = updateStock
+        ? await Promise.all(cart.map(item => resolveFifoCost(db, item)))
+        : cart.map(() => null);
+
       let totalCost = 0;
-      const itemsProcessed = cart.map(item => {
+      const itemsProcessed = cart.map((item, idx) => {
         const qty  = parseFloat(item.quantity || 0);
-        const cost = parseFloat(item.cost     || 0);
+        const fifo = fifoResults[idx];
+        const cost = fifo ? fifo.cost : parseFloat(item.cost || 0);
         totalCost += cost * qty;
-        return { id: item.id, name: item.name, quantity: item.quantity, price: item.price, cost: item.cost || 0, tax: item.tax || 10, soldBy: item.soldBy };
+        return {
+          id: item.id, name: item.name, quantity: item.quantity, price: item.price,
+          cost, tax: item.tax || 10, soldBy: item.soldBy,
+          ...(fifo ? { batchConsumption: fifo.batchConsumption } : {}),
+        };
       });
 
       const saleData = {
@@ -266,6 +279,16 @@ export default function ManualSaleEntry() {
             stockBatch.update(pRef, { current_stock: Math.max(0, parseFloat(pd.current_stock || 0) - item.quantity) });
           }
         }
+
+        // Descontar de los lotes FIFO efectivamente consumidos
+        itemsProcessed.forEach(item => {
+          (item.batchConsumption || []).forEach(({ batchId, qty }) => {
+            stockBatch.update(doc(db, 'inventory_batches', batchId), {
+              qtyRemaining: increment(-qty),
+            });
+          });
+        });
+
         await stockBatch.commit();
       }
 
@@ -503,8 +526,8 @@ export default function ManualSaleEntry() {
                   </p>
                   <p className={`text-[10px] mt-0.5 leading-tight ${updateStock ? 'text-amber-600' : 'text-gray-400'}`}>
                     {updateStock
-                      ? '⚠️ Se reducirá el inventario. Activalo solo si el stock NO fue descontado aún.'
-                      : 'El stock no se modificará (recomendado si el stock ya fue consumido).'}
+                      ? '⚠️ Se reducirá el inventario y se descontará del lote FIFO correspondiente, igual que en el TPV. Activalo solo si el stock NO fue descontado aún.'
+                      : 'El stock no se modificará (recomendado si el stock ya fue consumido, para no descontarlo dos veces).'}
                   </p>
                 </div>
               </div>

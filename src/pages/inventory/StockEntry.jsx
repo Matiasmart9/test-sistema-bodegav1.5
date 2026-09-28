@@ -215,6 +215,7 @@ export default function StockEntry() {
           type:        'add',
           change:      parseFloat(item.qtyIn),
           finalStock:  prevStock + parseFloat(item.qtyIn),
+          unitCost:    parseFloat(item.newCost) || 0,
           reason:      'Compra a Proveedor',
           note:        `Proveedor: ${supplier}${invoiceNo ? ' — Factura: ' + invoiceNo : ''}${notes ? ' — ' + notes : ''}`,
           user:        userData?.name || 'Admin',

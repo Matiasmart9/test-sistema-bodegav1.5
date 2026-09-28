@@ -1171,7 +1171,7 @@ export default function PosTerminal() {
       <div className="flex-1 flex flex-col min-w-0">
 
         {/* HEADER */}
-        <div className="bg-white h-20 shadow-sm flex items-center justify-between px-6 shrink-0 gap-6 z-20 sticky top-0">
+        <div className="bg-white h-20 shadow-sm border-b border-gray-100 flex items-center justify-between px-6 shrink-0 gap-6 z-20 sticky top-0">
           <div className="flex items-center gap-3">
             <div className="bg-gradient-to-br from-green-500 to-emerald-600 p-2.5 rounded-xl text-white shadow-lg shadow-green-200">
               <Store size={24} strokeWidth={2.5}/>
@@ -1315,7 +1315,7 @@ export default function PosTerminal() {
               onClick={() => setSelectedCategory(cat)}
               className={`px-5 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-all duration-200 active:scale-95 shadow-sm
                 ${selectedCategory === cat
-                  ? 'bg-slate-800 text-white shadow-lg shadow-slate-500/30'
+                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/30'
                   : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-300 hover:text-gray-800 hover:shadow-md'}`}
             >
               {cat}
@@ -1325,48 +1325,70 @@ export default function PosTerminal() {
 
         {/* GRID DE PRODUCTOS */}
         <div className="flex-1 p-6 overflow-y-auto bg-slate-100">
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-5 pb-20">
-            {filteredProducts.map((product, idx) => {
-              const stockVal  = parseFloat(product.stock);
-              const minVal    = parseFloat(product.low_stock);
-              const isLowStock = stockVal <= minVal;
+          {filteredProducts.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-gray-400 py-20">
+              <Package size={48} className="mb-3 opacity-20"/>
+              <p className="font-bold text-gray-500">No se encontraron productos</p>
+              <p className="text-sm mt-1">Probá con otro nombre, código o categoría.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-5 pb-20">
+              {filteredProducts.map((product, idx) => {
+                const stockVal    = parseFloat(product.stock);
+                const minVal      = parseFloat(product.low_stock);
+                const isOutOfStock = stockVal <= 0;
+                const isLowStock  = !isOutOfStock && stockVal <= minVal;
+                const cartItem    = cart.find(i => i.id === product.id);
 
-              return (
-                <div
-                  key={idx}
-                  onClick={() => addToCart(product)}
-                  className="bg-white p-4 rounded-2xl shadow-sm hover:shadow-xl border border-transparent hover:border-emerald-500/30 cursor-pointer hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between h-48 relative overflow-hidden group"
-                >
+                return (
                   <div
-                    className="absolute top-0 left-0 w-full h-1.5 transition-colors group-hover:bg-emerald-500"
-                    style={{ backgroundColor: product.color || '#cbd5e1' }}
-                  />
-                  <div className={`absolute top-4 right-3 text-[10px] font-black px-2.5 py-1 rounded-lg border shadow-sm
-                    ${isLowStock ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}
+                    key={idx}
+                    onClick={() => addToCart(product)}
+                    className={`bg-white p-4 rounded-2xl shadow-sm border flex flex-col justify-between h-48 relative overflow-hidden group transition-all duration-300
+                      ${isOutOfStock
+                        ? 'opacity-60 cursor-not-allowed border-transparent'
+                        : cartItem
+                          ? 'cursor-pointer hover:shadow-xl hover:-translate-y-1 border-emerald-400 ring-2 ring-emerald-500/20'
+                          : 'cursor-pointer hover:shadow-xl hover:border-emerald-500/30 hover:-translate-y-1 border-transparent'}`}
                   >
-                    {product.soldBy === 'weight'
-                      ? parseFloat(product.stock).toFixed(2) + ' kg'
-                      : product.stock + ' u.'}
-                  </div>
-                  <div className="mt-3 pl-1 pt-2">
-                    <h3 className="font-bold text-gray-800 text-sm leading-snug line-clamp-2 mb-1 group-hover:text-emerald-700 transition-colors">
-                      {product.name}
-                    </h3>
-                    {product.sku && (
-                      <p className="text-[10px] text-gray-400 flex items-center gap-1 font-mono tracking-wide">
-                        <Barcode size={10}/> {product.sku}
-                      </p>
+                    <div
+                      className={`absolute top-0 left-0 w-full h-1.5 transition-colors ${!isOutOfStock && 'group-hover:bg-emerald-500'}`}
+                      style={{ backgroundColor: isOutOfStock ? '#cbd5e1' : (product.color || '#cbd5e1') }}
+                    />
+                    {cartItem && (
+                      <div className="absolute top-3.5 left-3 bg-emerald-600 text-white text-[10px] font-black px-2 py-1 rounded-lg shadow-sm z-10">
+                        ×{cartItem.quantity}
+                      </div>
                     )}
+                    <div className={`absolute top-4 right-3 text-[10px] font-black px-2.5 py-1 rounded-lg border shadow-sm
+                      ${isOutOfStock ? 'bg-gray-100 text-gray-500 border-gray-200' : isLowStock ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}
+                    >
+                      {isOutOfStock
+                        ? 'Sin stock'
+                        : product.soldBy === 'weight'
+                          ? parseFloat(product.stock).toFixed(2) + ' kg'
+                          : product.stock + ' u.'}
+                    </div>
+                    <div className="mt-3 pl-1 pt-2">
+                      <h3 className={`font-bold text-sm leading-snug line-clamp-2 mb-1 transition-colors ${isOutOfStock ? 'text-gray-500' : 'text-gray-800 group-hover:text-emerald-700'}`}>
+                        {product.name}
+                      </h3>
+                      {product.sku && (
+                        <p className="text-[10px] text-gray-400 flex items-center gap-1 font-mono tracking-wide">
+                          <Barcode size={10}/> {product.sku}
+                        </p>
+                      )}
+                    </div>
+                    <div className="pl-1 mt-auto">
+                      <span className={`block font-black text-2xl tracking-tight ${isOutOfStock ? 'text-gray-400' : 'text-emerald-600'}`}>
+                        ₲ {product.price?.toLocaleString()}
+                      </span>
+                    </div>
                   </div>
-                  <div className="pl-1 mt-auto">
-                    <span className="block text-emerald-600 font-black text-2xl tracking-tight">
-                      ₲ {product.price?.toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1386,10 +1408,17 @@ export default function PosTerminal() {
 
         {/* Items del carrito */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50 custom-scrollbar">
+          {cart.length === 0 && (
+            <div className="h-full flex flex-col items-center justify-center text-gray-300 py-10">
+              <ShoppingCart size={40} className="mb-3 opacity-40"/>
+              <p className="text-sm font-bold text-gray-400">El carrito está vacío</p>
+              <p className="text-xs text-gray-400 mt-1 text-center max-w-[220px]">Tocá un producto para agregarlo al ticket.</p>
+            </div>
+          )}
           {cart.map(item => (
-            <div key={item.id} className="flex gap-3 bg-white p-3 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-all group">
-              <div className="flex flex-col items-center justify-between bg-slate-50 rounded-lg w-10 py-1 border border-slate-100">
-                <button onClick={() => updateQuantity(item.id, 1)} className="text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded p-0.5 transition-colors">
+            <div key={item.id} className="flex gap-3 bg-white p-3 rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:border-emerald-100 transition-all group">
+              <div className="flex flex-col items-center justify-between bg-slate-50 rounded-lg w-10 py-1 border border-slate-200 shadow-inner shrink-0">
+                <button onClick={() => updateQuantity(item.id, 1)} className="w-full flex items-center justify-center text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded p-0.5 transition-colors">
                   <Plus size={14}/>
                 </button>
                 <input
@@ -1404,9 +1433,9 @@ export default function PosTerminal() {
                       handleQuantityChange(item.id, minQty);
                     }
                   }}
-                  className="w-full text-center bg-transparent font-bold text-sm focus:outline-none p-0 appearance-none text-gray-700"
+                  className="w-full text-center bg-transparent font-black text-sm focus:outline-none p-0 appearance-none text-gray-800"
                 />
-                <button onClick={() => updateQuantity(item.id, -1)} className="text-gray-400 hover:text-rose-500 hover:bg-rose-50 rounded p-0.5 transition-colors">
+                <button onClick={() => updateQuantity(item.id, -1)} className="w-full flex items-center justify-center text-gray-400 hover:text-rose-500 hover:bg-rose-50 rounded p-0.5 transition-colors">
                   <Minus size={14}/>
                 </button>
               </div>

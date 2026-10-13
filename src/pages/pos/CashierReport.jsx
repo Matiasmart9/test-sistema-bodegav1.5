@@ -17,11 +17,12 @@ const g     = (n) => `₲ ${Math.round(n || 0).toLocaleString('es-PY')}`;
 const pct   = (n) => `${(n || 0).toFixed(1)}%`;
 
 const PAYMENT_LABELS = {
-  cash:     'Efectivo',
-  qr:       'QR',
-  card:     'Tarjeta',
-  transfer: 'Transferencia',
-  fiado:    'Fiado',
+  cash:            'Efectivo',
+  qr:              'QR',
+  card:            'Tarjeta',
+  transfer:        'Transferencia',
+  fiado:           'Fiado (pendiente)',
+  creditCollected: 'Cobros de Fiado',
 };
 
 export default function CashierReport() {
@@ -43,20 +44,15 @@ export default function CashierReport() {
       const start = new Date(sy, sm - 1, sd,  0,  0,  0,   0);
       const end   = new Date(ey, em - 1, ed, 23, 59, 59, 999);
 
-      const snap = await getDocs(
-        query(collection(db, 'sales'),
-          where('date', '>=', start),
-          where('date', '<=', end)
-        )
-      );
+      const [snap, creditSnap] = await Promise.all([
+        getDocs(query(collection(db, 'sales'), where('date', '>=', start), where('date', '<=', end))),
+        getDocs(query(collection(db, 'credit_payments'), where('date', '>=', start), where('date', '<=', end))),
+      ]);
       const sales = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
       // Agrupar por cajero
       const cashierMap = {};
-      sales.forEach(sale => {
-        const key  = sale.userId  || sale.userName || 'Desconocido';
-        const name = sale.userName || 'Desconocido';
-
+      const ensureCashier = (key, name) => {
         if (!cashierMap[key]) {
           cashierMap[key] = {
             cashierId:     key,
@@ -68,15 +64,20 @@ export default function CashierReport() {
             netSales:      0,
             costOfGoods:   0,
             grossProfit:   0,
-            paymentBreakdown: { cash: 0, qr: 0, card: 0, transfer: 0, fiado: 0 },
+            paymentBreakdown: { cash: 0, qr: 0, card: 0, transfer: 0, fiado: 0, creditCollected: 0 },
             topProducts:   {},  // { name: { qty, revenue } }
             dailyMap:      {},  // { 'dd/mm/yy': { tickets, net } }
           };
         }
+        return cashierMap[key];
+      };
 
-        const c          = cashierMap[key];
+      sales.forEach(sale => {
+        const key  = sale.userId  || sale.userName || 'Desconocido';
+        const name = sale.userName || 'Desconocido';
+        const c    = ensureCashier(key, name);
+
         const isCanceled = sale.status === 'canceled';
-
         if (isCanceled) {
           c.canceledTickets++;
           return;
@@ -86,12 +87,18 @@ export default function CashierReport() {
         const discountAmt  = parseFloat(sale.discountTotal || 0);
         const net          = parseFloat(sale.total || 0);
         const pm           = sale.paymentMethod || 'cash';
+        const isFiado      = pm === 'fiado';
 
         c.tickets++;
+        if (c.paymentBreakdown[pm] !== undefined) c.paymentBreakdown[pm] += net;
+
+        // El fiado pendiente todavía no es plata real — no suma a ventas/costo/ranking
+        // hasta que se cobre (ver credit_payments más abajo).
+        if (isFiado) return;
+
         c.grossSales  += subTotal;
         c.discounts   += discountAmt;
         c.netSales    += net;
-        if (c.paymentBreakdown[pm] !== undefined) c.paymentBreakdown[pm] += net;
 
         // Costo de bienes + top productos
         if (Array.isArray(sale.items)) {
@@ -116,6 +123,19 @@ export default function CashierReport() {
         c.dailyMap[dKey].net += net;
       });
 
+      // Cobros de fiado del período — recién ahí esa plata entra como venta real,
+      // atribuida al cajero que la cobró.
+      creditSnap.docs.forEach(d => {
+        const p = d.data();
+        if (p.status === 'voided') return;
+        const key    = p.cashierId || p.cashierName || 'Desconocido';
+        const name   = p.cashierName || 'Desconocido';
+        const amount = parseFloat(p.amount || 0);
+        const c = ensureCashier(key, name);
+        c.netSales += amount;
+        c.paymentBreakdown.creditCollected += amount;
+      });
+
       // Derivar campos calculados y ordenar
       const result = Object.values(cashierMap).map(c => ({
         ...c,
@@ -125,7 +145,7 @@ export default function CashierReport() {
         topProductsList: Object.entries(c.topProducts)
           .map(([name, v]) => ({ name, ...v }))
           .sort((a, b) => b.revenue - a.revenue)
-          .slice(0, 5),
+          .slice(0, 10),
         dailyList: Object.values(c.dailyMap)
           .sort((a, b) => a.dateObj - b.dateObj),
       })).sort((a, b) => b.netSales - a.netSales);
@@ -177,7 +197,8 @@ export default function CashierReport() {
       'QR (₲)':            Math.round(c.paymentBreakdown.qr),
       'Tarjeta (₲)':       Math.round(c.paymentBreakdown.card),
       'Transferencia (₲)': Math.round(c.paymentBreakdown.transfer),
-      'Fiado (₲)':         Math.round(c.paymentBreakdown.fiado),
+      'Fiado pendiente (₲)': Math.round(c.paymentBreakdown.fiado),
+      'Cobros de Fiado (₲)': Math.round(c.paymentBreakdown.creditCollected),
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), 'Resumen Cajeros');
 
@@ -379,15 +400,15 @@ export default function CashierReport() {
                         </div>
                       </div>
 
-                      {/* Top 5 productos */}
+                      {/* Top 10 productos */}
                       <div className="bg-white rounded-xl border border-gray-100 p-4">
                         <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
-                          Top 5 Productos
+                          Top 10 Productos
                         </h4>
                         {cashier.topProductsList.length === 0 ? (
                           <p className="text-xs text-gray-400 italic">Sin datos</p>
                         ) : (
-                          <div className="space-y-2">
+                          <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                             {cashier.topProductsList.map((p, i) => (
                               <div key={i} className="flex justify-between items-center text-xs">
                                 <div className="flex items-center gap-2 min-w-0">

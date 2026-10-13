@@ -119,7 +119,7 @@ export default function CreditClientsList() {
       onConfirm: async () => {
         setVoidingId(payment.id);
         try {
-          await voidCreditPayment(payment.id, { voidedBy: userData?.name || 'Admin' });
+          await voidCreditPayment(payment.id, { voidedBy: userData?.name || 'Admin', shiftId: payment.shiftId, amount: payment.amount });
           sileo.success({ title: 'Pago anulado.' });
           await refreshSelected();
         } catch (e) {

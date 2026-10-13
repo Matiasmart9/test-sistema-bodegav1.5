@@ -2,13 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import {
   collection, query, where, getDocs, doc,
-  updateDoc, increment, addDoc, getDoc, writeBatch
+  updateDoc, increment, addDoc, getDoc, setDoc, writeBatch
 } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import {
   Receipt, Loader2, Printer, Search, User,
   FileSpreadsheet, Calendar, TrendingUp, Ban,
-  AlertTriangle, TrendingDown, X, Info,
+  AlertTriangle, TrendingDown, X, Info, Pencil, Check, Tag,
   ChevronLeft, ChevronsLeft, ChevronRight, ChevronsRight, HandCoins
 } from 'lucide-react';
 import TicketInvoice from './TicketInvoice';
@@ -24,9 +24,16 @@ export default function SalesHistory() {
 
   // ── Datos ─────────────────────────────────────────────────────────────────
   const [mergedHistory,  setMergedHistory]  = useState([]);
+  const [creditPayments, setCreditPayments] = useState([]);
   const [globalBalance,  setGlobalBalance]  = useState(null);
+  const [rawBalance,     setRawBalance]     = useState(0); // Ventas - Gastos SIN el ajuste manual, para recalcular el ajuste al editar
   const [loading,        setLoading]        = useState(true);
   const [loadingGlobal,  setLoadingGlobal]  = useState(false);
+
+  // ── Edición manual del Capital Total Acumulado ─────────────────────────────
+  const [editingCapital, setEditingCapital] = useState(false);
+  const [capitalInput,   setCapitalInput]   = useState('');
+  const [savingCapital,  setSavingCapital]  = useState(false);
 
   // ── UI ────────────────────────────────────────────────────────────────────
   const [currentPage,      setCurrentPage]      = useState(1);
@@ -92,6 +99,16 @@ export default function SalesHistory() {
         date: d.data().date?.toDate ? d.data().date.toDate() : new Date(d.data().date),
       }));
 
+      // Cobros de fiado del período — recién ahí esa plata cuenta como venta real
+      const creditSnap = await getDocs(query(
+        collection(db, 'credit_payments'),
+        where('date', '>=', startDate),
+        where('date', '<=', endDate)
+      ));
+      setCreditPayments(creditSnap.docs
+        .map(d => d.data())
+        .filter(p => p.status !== 'voided'));
+
       const combined = [...salesData, ...expensesData].sort((a, b) => b.date - a.date);
       setMergedHistory(combined);
     } catch (error) {
@@ -117,18 +134,29 @@ export default function SalesHistory() {
       const salesRef    = collection(db, 'sales');
       const expensesRef = collection(db, 'shift_movements');
 
-      // 3 queries en paralelo — sin ningún getAggregateFromServer con where
-      const [allSalesSnap, canceledSnap, expensesSnap] = await Promise.all([
+      // 4 queries en paralelo — sin ningún getAggregateFromServer con where
+      const [allSalesSnap, canceledSnap, expensesSnap, paymentsSnap, settingsSnap] = await Promise.all([
         getDocs(query(salesRef)),
         getDocs(query(salesRef,    where('status', '==', 'canceled'))),
         getDocs(query(expensesRef, where('type',   '==', 'expense'))),
+        getDocs(collection(db, 'credit_payments')),
+        getDoc(doc(db, 'settings', 'general')),
       ]);
 
+      // El fiado pendiente no cuenta como venta real hasta que se cobre —
+      // se excluye acá (tanto del total como de los cancelados) y se repone
+      // más abajo con lo efectivamente cobrado (paymentsTotal).
       const totalSales    = allSalesSnap.docs.reduce(
-        (acc, d) => acc + parseFloat(d.data().total  || 0), 0
+        (acc, d) => {
+          const s = d.data();
+          return s.paymentMethod === 'fiado' ? acc : acc + parseFloat(s.total || 0);
+        }, 0
       );
       const canceledTotal = canceledSnap.docs.reduce(
-        (acc, d) => acc + parseFloat(d.data().total  || 0), 0
+        (acc, d) => {
+          const s = d.data();
+          return s.paymentMethod === 'fiado' ? acc : acc + parseFloat(s.total || 0);
+        }, 0
       );
       const totalExpenses = expensesSnap.docs.reduce(
         (acc, d) => {
@@ -137,14 +165,62 @@ export default function SalesHistory() {
           return data.status !== 'canceled' ? acc + parseFloat(data.amount || 0) : acc;
         }, 0
       );
+      const paymentsTotal = paymentsSnap.docs.reduce(
+        (acc, d) => {
+          const p = d.data();
+          return p.status === 'voided' ? acc : acc + parseFloat(p.amount || 0);
+        }, 0
+      );
 
-      const revenue = totalSales - canceledTotal;
-      setGlobalBalance(revenue - totalExpenses);
+      const revenue = totalSales - canceledTotal + paymentsTotal;
+      const raw = revenue - totalExpenses;
+      const manualAdjustment = parseFloat(settingsSnap.data()?.capitalAdjustment || 0);
+
+      setRawBalance(raw);
+      setGlobalBalance(raw + manualAdjustment);
     } catch (e) {
       console.error('Error balance global:', e);
       setGlobalBalance(null);
     } finally {
       setLoadingGlobal(false);
+    }
+  };
+
+  // ── Edición manual del Capital Total Acumulado ─────────────────────────────
+  const handleStartEditCapital = () => {
+    setCapitalInput(String(Math.round(globalBalance ?? 0)));
+    setEditingCapital(true);
+  };
+
+  const handleRequestSaveCapital = () => {
+    const newValue = parseFloat(capitalInput) || 0;
+    setConfirmModal({
+      title: '¿Aplicar esta corrección?',
+      description: `El Capital Total Acumulado va a pasar de ₲ ${Math.round(globalBalance ?? 0).toLocaleString()} a ₲ ${Math.round(newValue).toLocaleString()}, para que coincida con lo que tenés anotado. Los próximos movimientos van a seguir sumando o restando desde este nuevo monto.`,
+      confirmText: 'Sí, aplicar cambio',
+      variant: 'warning',
+      onConfirm: () => _executeSaveCapital(newValue),
+    });
+  };
+
+  const _executeSaveCapital = async (newValue) => {
+    setSavingCapital(true);
+    try {
+      const adjustment = newValue - rawBalance;
+      await setDoc(doc(db, 'settings', 'general'), {
+        capitalAdjustment: adjustment,
+        capitalAdjustedAt: new Date(),
+        capitalAdjustedBy: userData.name,
+      }, { merge: true });
+
+      setGlobalBalance(newValue);
+      setEditingCapital(false);
+      sileo.success({ title: 'Capital Total Acumulado actualizado.' });
+    } catch (e) {
+      console.error('Error al guardar la corrección:', e);
+      sileo.error({ title: 'Error al guardar la corrección.' });
+    } finally {
+      setSavingCapital(false);
     }
   };
 
@@ -289,10 +365,15 @@ export default function SalesHistory() {
   const activeSales   = filteredHistory.filter(i => i.type === 'sale'    && i.status !== 'canceled');
   const activeExpenses= filteredHistory.filter(i => i.type === 'expense' && i.status !== 'canceled');
 
-  const grossSales     = activeSales.reduce((a, s) => a + (s.subTotal || s.total || 0), 0);
-  const totalDiscounts = activeSales.reduce((a, s) => a + (s.discountTotal || 0), 0);
-  const netSales       = activeSales.reduce((a, s) => a + (s.total || 0), 0);
-  const totalCost      = activeSales.reduce((a, sale) => {
+  // El fiado pendiente todavía no es plata real — se excluye de brutas/netas/costo/ganancia
+  // hasta que se cobre (ver creditPayments, que sí suma a Ventas Netas cuando se cobra).
+  const nonCreditSales = activeSales.filter(s => s.paymentMethod !== 'fiado');
+  const creditCollected = creditPayments.reduce((a, p) => a + (parseFloat(p.amount) || 0), 0);
+
+  const grossSales     = nonCreditSales.reduce((a, s) => a + (s.subTotal || s.total || 0), 0);
+  const totalDiscounts = nonCreditSales.reduce((a, s) => a + (s.discountTotal || 0), 0);
+  const netSales       = nonCreditSales.reduce((a, s) => a + (s.total || 0), 0) + creditCollected;
+  const totalCost      = nonCreditSales.reduce((a, sale) => {
     const c = sale.items?.reduce((ia, item) => ia + ((item.cost || 0) * (item.quantity || 0)), 0) || 0;
     return a + c;
   }, 0);
@@ -446,8 +527,9 @@ export default function SalesHistory() {
     ({ cash: 'Efectivo', qr: 'QR', card: 'Tarjeta', transfer: 'Transferencia', fiado: 'Fiado' }[m] || 'Otro');
 
   // Tarjeta KPI con tooltip
-  const KpiCard = ({ title, value, colorClass, icon: Icon, tooltip }) => (
-    <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm relative group hover:shadow-md transition-shadow">
+  const KpiCard = ({ title, value, colorClass, icon: Icon, tooltip, accentBar, iconBg }) => (
+    <div className="relative overflow-hidden bg-white p-4 rounded-xl border border-gray-100 shadow-sm group hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300">
+      {accentBar && <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r ${accentBar}`}/>}
       <div className="flex justify-between items-start mb-2">
         <p className="text-xs text-gray-500 font-bold uppercase flex items-center gap-1">
           {title}
@@ -462,7 +544,11 @@ export default function SalesHistory() {
             </span>
           </span>
         </p>
-        {Icon && <Icon size={18} className="text-gray-300" />}
+        {Icon && (
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${iconBg || 'bg-gray-50 text-gray-400'} group-hover:scale-110 transition-transform duration-300`}>
+            <Icon size={15} />
+          </div>
+        )}
       </div>
       <h3 className={`text-2xl font-black ${colorClass}`}>
         ₲ {value.toLocaleString()}
@@ -636,16 +722,45 @@ export default function SalesHistory() {
         </div>
 
         {userData.role === 'admin' && (
-          <div className="bg-gray-900 text-white p-4 rounded-xl shadow-lg flex items-center gap-4 min-w-[260px]">
-            <div className="p-3 bg-white/10 rounded-full w-12 h-12 flex items-center justify-center font-black text-xl text-green-400 select-none">
+          <div className="group relative bg-gray-900 text-white p-4 rounded-xl shadow-lg flex items-center gap-4 min-w-[260px]">
+            <div className="p-3 bg-white/10 rounded-full w-12 h-12 flex items-center justify-center font-black text-xl text-green-400 select-none shrink-0">
               ₲
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">
                 Capital Total Acumulado
               </p>
               {loadingGlobal ? (
                 <Loader2 size={18} className="animate-spin mt-1 text-green-400" />
+              ) : editingCapital ? (
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className="text-green-400 font-bold">₲</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoFocus
+                    value={formatGuaranies(capitalInput)}
+                    onChange={e => setCapitalInput(parseGuaraniesStr(e.target.value))}
+                    onKeyDown={e => e.key === 'Enter' && handleRequestSaveCapital()}
+                    className="w-28 bg-white/10 border border-white/20 rounded-lg px-2 py-1 text-lg font-black text-white focus:outline-none focus:border-green-400"
+                  />
+                  <button
+                    onClick={handleRequestSaveCapital}
+                    disabled={savingCapital}
+                    className="p-1.5 bg-green-500 hover:bg-green-400 rounded-lg transition-colors disabled:opacity-50"
+                    title="Guardar corrección"
+                  >
+                    <Check size={14} />
+                  </button>
+                  <button
+                    onClick={() => setEditingCapital(false)}
+                    disabled={savingCapital}
+                    className="p-1.5 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+                    title="Cancelar"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
               ) : globalBalance !== null ? (
                 <p className="text-2xl font-black text-white">
                   ₲ {globalBalance.toLocaleString()}
@@ -660,6 +775,16 @@ export default function SalesHistory() {
               )}
               <p className="text-[10px] text-gray-500">Histórico (Ventas − Gastos)</p>
             </div>
+
+            {!loadingGlobal && !editingCapital && globalBalance !== null && (
+              <button
+                onClick={handleStartEditCapital}
+                title="Corregir monto manualmente"
+                className="absolute top-2 right-2 p-1.5 rounded-lg bg-white/0 text-gray-500 opacity-0 group-hover:opacity-100 group-hover:bg-white/10 group-hover:text-green-400 transition-all"
+              >
+                <Pencil size={14} />
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -759,29 +884,32 @@ export default function SalesHistory() {
         <KpiCard
           title="Ventas Brutas"    value={grossSales}     colorClass="text-gray-800"
           tooltip="La suma de todas las ventas antes de descuentos y reembolsos."
+          icon={Receipt} iconBg="bg-slate-100 text-slate-500" accentBar="from-slate-400 to-slate-600"
         />
         <KpiCard
           title="Descuentos"       value={totalDiscounts} colorClass="text-orange-500"
           tooltip="La suma de los descuentos aplicados en los tickets de venta."
+          icon={Tag} iconBg="bg-orange-50 text-orange-500" accentBar="from-orange-400 to-orange-600"
         />
         <KpiCard
           title="Ventas Netas"     value={netSales}       colorClass="text-blue-600"
-          tooltip="Ventas brutas menos descuentos y reembolsos."
+          tooltip="Ventas brutas menos descuentos y reembolsos. No incluye fiado pendiente — los cobros de fiado del período sí se suman acá."
+          icon={Receipt} iconBg="bg-blue-50 text-blue-600" accentBar="from-blue-400 to-blue-600"
         />
         <KpiCard
           title="Beneficio Bruto"  value={grossProfit}    colorClass="text-green-600"
           tooltip="Ventas netas menos costo de bienes (Ganancia Real)."
-          icon={TrendingUp}
+          icon={TrendingUp} iconBg="bg-green-50 text-green-600" accentBar="from-green-400 to-green-600"
         />
         <KpiCard
           title="Egresos (Gastos)" value={totalExpenses}  colorClass="text-red-500"
           tooltip="Total de gastos operativos registrados en este periodo."
-          icon={TrendingDown}
+          icon={TrendingDown} iconBg="bg-red-50 text-red-500" accentBar="from-red-400 to-red-600"
         />
         <KpiCard
           title="Fiados"           value={totalFiado}     colorClass="text-amber-600"
-          tooltip="Total vendido a crédito (fiado) en este periodo. Este dinero aún no fue cobrado y no forma parte del efectivo en caja."
-          icon={HandCoins}
+          tooltip="Total vendido a crédito (fiado) en este periodo. Este dinero aún no fue cobrado, no forma parte del efectivo en caja, y no está incluido en Ventas Netas."
+          icon={HandCoins} iconBg="bg-amber-50 text-amber-600" accentBar="from-amber-400 to-amber-600"
         />
       </div>
 

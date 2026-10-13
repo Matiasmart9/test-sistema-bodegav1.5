@@ -633,7 +633,9 @@ export default function PosTerminal() {
       await addDoc(collection(db, 'sales'), saleData);
 
       // ── Actualizar totales del turno ───────────────────────────────────
-      if (currentShift?.id) {
+      // El fiado no entró como efectivo/digital real a la caja: no suma al
+      // Total Vendido del turno hasta que se cobre (ver registerCreditPayment).
+      if (currentShift?.id && paymentDetails.method !== 'fiado') {
         await updateDoc(doc(db, 'shifts', currentShift.id), {
           salesTotal:  increment(finalTotalAmount),
           profitTotal: increment(saleProfit),
@@ -919,6 +921,7 @@ export default function PosTerminal() {
         <CreditPaymentModal
           onClose={() => setShowCreditModal(false)}
           cashier={effectiveUser}
+          shiftId={currentShift?.id}
         />
       )}
 

@@ -1,6 +1,6 @@
 // src/utils/creditUtils.js
 // Lógica compartida del sistema de Fiado (ventas a crédito).
-import { collection, query, where, getDocs, addDoc, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, doc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '../firebase/config';
 
 /**
@@ -66,28 +66,53 @@ export async function fetchClientCredit(clientId) {
   };
 }
 
-/** Registra un pago (total o parcial) contra la deuda de un cliente. */
-export async function registerCreditPayment({ clientId, clientName, amount, note, cashierId, cashierName }) {
-  return addDoc(collection(db, 'credit_payments'), {
+/**
+ * Registra un pago (total o parcial) contra la deuda de un cliente.
+ * Si se cobra durante un turno de caja abierto (shiftId), ese monto recién
+ * ahí suma al Total Vendido del turno — la venta fiada original no sumó
+ * nada porque todavía no había entrado como plata real a la caja.
+ */
+export async function registerCreditPayment({ clientId, clientName, amount, note, cashierId, cashierName, shiftId }) {
+  const parsedAmount = parseFloat(amount) || 0;
+  const paymentRef = await addDoc(collection(db, 'credit_payments'), {
     clientId,
     clientName,
-    amount: parseFloat(amount) || 0,
+    amount: parsedAmount,
     note: note?.trim() || null,
     cashierId,
     cashierName,
+    shiftId: shiftId || null,
     date: new Date(),
     status: 'active',
   });
+
+  if (shiftId) {
+    await updateDoc(doc(db, 'shifts', shiftId), {
+      salesTotal: increment(parsedAmount),
+    });
+  }
+
+  return paymentRef;
 }
 
-/** Anula un pago ya registrado (no lo borra — vuelve a sumar la deuda). */
-export async function voidCreditPayment(paymentId, { voidedBy, voidReason }) {
-  return updateDoc(doc(db, 'credit_payments', paymentId), {
+/**
+ * Anula un pago ya registrado (no lo borra — vuelve a sumar la deuda).
+ * Si ese cobro había sumado al Total Vendido de un turno (shiftId/amount del
+ * pago original), se lo descuenta para no dejarlo de más.
+ */
+export async function voidCreditPayment(paymentId, { voidedBy, voidReason, shiftId, amount }) {
+  await updateDoc(doc(db, 'credit_payments', paymentId), {
     status: 'voided',
     voidedBy,
     voidedAt: new Date(),
     voidReason: voidReason?.trim() || null,
   });
+
+  if (shiftId) {
+    await updateDoc(doc(db, 'shifts', shiftId), {
+      salesTotal: increment(-(parseFloat(amount) || 0)),
+    });
+  }
 }
 
 /**

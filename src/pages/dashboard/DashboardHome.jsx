@@ -17,6 +17,7 @@ export default function DashboardHome() {
 
     // DATOS
     const [allSales, setAllSales] = useState([]);
+    const [allCreditPayments, setAllCreditPayments] = useState([]);
     const [allClientsCount, setAllClientsCount] = useState(0);
     const [lowStockItems, setLowStockItems] = useState([]);
     const [creditDebt, setCreditDebt] = useState({ total: 0, debtors: 0 });
@@ -87,6 +88,14 @@ export default function DashboardHome() {
                     });
                     const owed = Object.values(balances).filter(b => b > 0);
                     setCreditDebt({ total: owed.reduce((a, b) => a + b, 0), debtors: owed.length });
+
+                    // Cobros de fiado — recién ahí esa plata cuenta como ingreso real
+                    setAllCreditPayments(paymentsSnap.docs
+                        .map(d => {
+                            const p = d.data();
+                            return { ...p, dateObj: p.date?.toDate ? p.date.toDate() : new Date(p.date) };
+                        })
+                        .filter(p => p.status !== 'voided'));
                 } catch (e) {
                     console.error('Error deuda fiados:', e);
                 }
@@ -146,10 +155,8 @@ export default function DashboardHome() {
 
         const now = new Date();
 
-        // A. Filtrar ventas según el periodo seleccionado
-        const filteredSales = allSales.filter(sale => {
-            const d = sale.dateObj;
-
+        // Mismo criterio de fecha para ventas y para cobros de fiado
+        const matchesTimeFilter = (d) => {
             if (timeFilter === 'all') return true;
 
             if (timeFilter === 'today') {
@@ -173,7 +180,11 @@ export default function DashboardHome() {
                 return d.getFullYear() === now.getFullYear();
             }
             return true;
-        });
+        };
+
+        // A. Filtrar ventas según el periodo seleccionado
+        const filteredSales = allSales.filter(sale => matchesTimeFilter(sale.dateObj));
+        const filteredCreditPayments = allCreditPayments.filter(p => matchesTimeFilter(p.dateObj));
 
         // B. Calcular KPI Totales
         let revenue = 0;
@@ -202,7 +213,29 @@ export default function DashboardHome() {
             });
         }
 
+        // Misma clave de fecha para ubicar un monto en el gráfico, venga de una venta o de un cobro
+        const chartKeyFor = (dateObj) => {
+            if (timeFilter === 'month') {
+                return dateObj.getDate() < 10 ? `0${dateObj.getDate()}` : `${dateObj.getDate()}`;
+            } else if (timeFilter === 'year') {
+                const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+                return months[dateObj.getMonth()];
+            }
+            return dateObj.toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' });
+        };
+        const addToChart = (dateObj, amount) => {
+            const key = chartKeyFor(dateObj);
+            if (!tempChartData[key] && timeFilter === 'all') {
+                tempChartData[key] = { label: key, value: 0, sortKey: dateObj.getTime() };
+            }
+            if (tempChartData[key]) tempChartData[key].value += amount;
+        };
+
         filteredSales.forEach(sale => {
+            // El fiado pendiente todavía no es plata real — no suma a ingresos, ganancia,
+            // ranking de productos ni al gráfico hasta que se cobre (ver más abajo).
+            if (sale.paymentMethod === 'fiado') return;
+
             // Sumar KPI
             revenue += parseFloat(sale.total || 0);
 
@@ -222,23 +255,14 @@ export default function DashboardHome() {
             // Ganancia Neta de la venta = Total Cobrado - Costo Mercadería
             profit += (parseFloat(sale.total || 0) - saleCost);
 
-            // Asignar al Gráfico
-            let key;
-            if (timeFilter === 'month') {
-                key = sale.dateObj.getDate() < 10 ? `0${sale.dateObj.getDate()}` : `${sale.dateObj.getDate()}`;
-            } else if (timeFilter === 'year') {
-                const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-                key = months[sale.dateObj.getMonth()];
-            } else {
-                key = sale.dateObj.toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' });
-            }
+            addToChart(sale.dateObj, parseFloat(sale.total || 0));
+        });
 
-            if (tempChartData[key]) {
-                tempChartData[key].value += parseFloat(sale.total || 0);
-            } else if (timeFilter === 'all') {
-                if (!tempChartData[key]) tempChartData[key] = { label: key, value: 0, sortKey: sale.dateObj.getTime() };
-                tempChartData[key].value += parseFloat(sale.total || 0);
-            }
+        // Cobros de fiado del período — recién ahí esa plata cuenta como ingreso real
+        filteredCreditPayments.forEach(payment => {
+            const amount = parseFloat(payment.amount || 0);
+            revenue += amount;
+            addToChart(payment.dateObj, amount);
         });
 
         const finalGraphData = Object.values(tempChartData)
@@ -260,19 +284,22 @@ export default function DashboardHome() {
         setTopProducts(topProdArray);
         setRecentSales(filteredSales.slice(0, 5));
 
-    }, [allSales, timeFilter, loading]);
+    }, [allSales, allCreditPayments, timeFilter, loading]);
 
     if (loading) return (
         <div className="flex h-screen items-center justify-center bg-slate-50">
             <div className="flex flex-col items-center gap-4">
                 <Loader2 className="animate-spin text-emerald-600" size={48} />
-                <p className="text-sm font-bold text-slate-500 tracking-wide animate-pulse">Cargando Panel Premium...</p>
             </div>
         </div>
     );
 
     // Calcular el valor máximo de cantidad vendida para usar como base del 100% de la barra de progreso
     const maxQtySold = topProducts.length > 0 ? Math.max(...topProducts.map(p => p.quantity)) : 1;
+
+    // Etiquetas en español para el filtro de tiempo seleccionado
+    const filterLabels = { today: 'Hoy', week: '7 Días', month: 'Este Mes', year: 'Este Año', all: 'Todo' };
+    const chartGranularity = { today: 'Diario', week: 'Diario', month: 'Diario', year: 'Mensual', all: 'Histórico' };
 
     return (
         <div className="max-w-7xl mx-auto pb-24 px-4 sm:px-6">
@@ -317,13 +344,14 @@ export default function DashboardHome() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-8">
 
                 {/* CARD 1: VENTAS */}
-                <div className="bg-gradient-to-br from-white to-emerald-50/10 p-5 rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between group">
+                <div className="relative overflow-hidden bg-gradient-to-br from-white to-emerald-50/10 p-5 rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-lg hover:shadow-emerald-900/5 hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between group">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-400 to-emerald-600"/>
                     <div className="flex justify-between items-start mb-3">
                         <div>
                             <p className="text-slate-400 text-[9px] font-black uppercase tracking-wider mb-0.5">Ingresos Totales</p>
-                            <h4 className="text-slate-800 font-extrabold text-xs">Ventas ({timeFilter})</h4>
+                            <h4 className="text-slate-800 font-extrabold text-xs">Ventas ({filterLabels[timeFilter]})</h4>
                         </div>
-                        <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-base shadow-sm group-hover:scale-110 transition-transform duration-300">
+                        <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-base shadow-sm shadow-emerald-100 group-hover:scale-110 transition-transform duration-300">
                             ₲
                         </div>
                     </div>
@@ -332,17 +360,21 @@ export default function DashboardHome() {
                             ₲ {stats.totalSales.toLocaleString('es-PY')}
                         </h3>
                         <p className="text-[10px] text-emerald-600 font-bold">Monto bruto cobrado</p>
+                        <p className="text-[9px] text-slate-400 font-medium mt-1 leading-snug">
+                            No incluye fiado pendiente — suma recién cuando se cobra.
+                        </p>
                     </div>
                 </div>
 
                 {/* CARD 2: GANANCIA */}
-                <div className="bg-gradient-to-br from-white to-blue-50/10 p-5 rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between group">
+                <div className="relative overflow-hidden bg-gradient-to-br from-white to-blue-50/10 p-5 rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-lg hover:shadow-blue-900/5 hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between group">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-400 to-blue-600"/>
                     <div className="flex justify-between items-start mb-3">
                         <div>
                             <p className="text-slate-400 text-[9px] font-black uppercase tracking-wider mb-0.5">Utilidad Neta</p>
                             <h4 className="text-slate-800 font-extrabold text-xs">Ganancia Est.</h4>
                         </div>
-                        <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center group-hover:scale-110 transition-transform duration-300 shadow-sm">
+                        <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center group-hover:scale-110 transition-transform duration-300 shadow-sm shadow-blue-100">
                             <TrendingUp size={16} />
                         </div>
                     </div>
@@ -355,13 +387,14 @@ export default function DashboardHome() {
                 </div>
 
                 {/* CARD 3: VENTAS CONCRETADAS (PEDIDOS RENOMBRADO) */}
-                <div className="bg-gradient-to-br from-white to-violet-50/10 p-5 rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between group">
+                <div className="relative overflow-hidden bg-gradient-to-br from-white to-violet-50/10 p-5 rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-lg hover:shadow-violet-900/5 hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between group">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-violet-400 to-violet-600"/>
                     <div className="flex justify-between items-start mb-3">
                         <div>
                             <p className="text-slate-400 text-[9px] font-black uppercase tracking-wider mb-0.5">Tickets de Caja</p>
                             <h4 className="text-slate-800 font-extrabold text-xs">Ventas Concretadas</h4>
                         </div>
-                        <div className="w-9 h-9 rounded-xl bg-violet-50 border border-violet-100 text-violet-600 flex items-center justify-center group-hover:scale-110 transition-transform duration-300 shadow-sm">
+                        <div className="w-9 h-9 rounded-xl bg-violet-50 border border-violet-100 text-violet-600 flex items-center justify-center group-hover:scale-110 transition-transform duration-300 shadow-sm shadow-violet-100">
                             <Receipt size={16} />
                         </div>
                     </div>
@@ -374,13 +407,14 @@ export default function DashboardHome() {
                 </div>
 
                 {/* CARD 4: TICKET PROMEDIO */}
-                <div className="bg-gradient-to-br from-white to-amber-50/10 p-5 rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between group">
+                <div className="relative overflow-hidden bg-gradient-to-br from-white to-amber-50/10 p-5 rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-lg hover:shadow-amber-900/5 hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between group">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-amber-400 to-amber-600"/>
                     <div className="flex justify-between items-start mb-3">
                         <div>
                             <p className="text-slate-400 text-[9px] font-black uppercase tracking-wider mb-0.5">Promedio por Compra</p>
                             <h4 className="text-slate-800 font-extrabold text-xs">Ticket Promedio</h4>
                         </div>
-                        <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-100 text-amber-600 flex items-center justify-center group-hover:scale-110 transition-transform duration-300 shadow-sm">
+                        <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-100 text-amber-600 flex items-center justify-center group-hover:scale-110 transition-transform duration-300 shadow-sm shadow-amber-100">
                             <ArrowUpRight size={16} />
                         </div>
                     </div>
@@ -393,13 +427,14 @@ export default function DashboardHome() {
                 </div>
 
                 {/* CARD 5: CLIENTES */}
-                <div className="bg-gradient-to-br from-white to-cyan-50/10 p-5 rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between group">
+                <div className="relative overflow-hidden bg-gradient-to-br from-white to-cyan-50/10 p-5 rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-lg hover:shadow-cyan-900/5 hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between group">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-400 to-cyan-600"/>
                     <div className="flex justify-between items-start mb-3">
                         <div>
                             <p className="text-slate-400 text-[9px] font-black uppercase tracking-wider mb-0.5">Base de Datos</p>
                             <h4 className="text-slate-800 font-extrabold text-xs">Clientes Registrados</h4>
                         </div>
-                        <div className="w-9 h-9 rounded-xl bg-cyan-50 border border-cyan-100 text-cyan-600 flex items-center justify-center group-hover:scale-110 transition-transform duration-300 shadow-sm">
+                        <div className="w-9 h-9 rounded-xl bg-cyan-50 border border-cyan-100 text-cyan-600 flex items-center justify-center group-hover:scale-110 transition-transform duration-300 shadow-sm shadow-cyan-100">
                             <Users size={16} />
                         </div>
                     </div>
@@ -414,14 +449,15 @@ export default function DashboardHome() {
                 {/* CARD 6: FIADOS (DEUDA PENDIENTE) */}
                 <div
                     onClick={() => navigate('/fiados')}
-                    className="cursor-pointer bg-gradient-to-br from-white to-orange-50/10 p-5 rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between group"
+                    className="relative overflow-hidden cursor-pointer bg-gradient-to-br from-white to-orange-50/10 p-5 rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-lg hover:shadow-orange-900/5 hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between group"
                 >
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-orange-400 to-orange-600"/>
                     <div className="flex justify-between items-start mb-3">
                         <div>
                             <p className="text-slate-400 text-[9px] font-black uppercase tracking-wider mb-0.5">Cuentas por Cobrar</p>
                             <h4 className="text-slate-800 font-extrabold text-xs">Fiados Pendientes</h4>
                         </div>
-                        <div className="w-9 h-9 rounded-xl bg-orange-50 border border-orange-100 text-orange-600 flex items-center justify-center group-hover:scale-110 transition-transform duration-300 shadow-sm">
+                        <div className="w-9 h-9 rounded-xl bg-orange-50 border border-orange-100 text-orange-600 flex items-center justify-center group-hover:scale-110 transition-transform duration-300 shadow-sm shadow-orange-100">
                             <HandCoins size={16} />
                         </div>
                     </div>
@@ -443,11 +479,13 @@ export default function DashboardHome() {
                 <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm flex flex-col">
                     <div className="flex justify-between items-center mb-6">
                         <div>
-                            <h3 className="font-extrabold text-slate-800 text-base">Evolución de Ingresos</h3>
+                            <h3 className="font-extrabold text-slate-800 text-base flex items-center gap-2">
+                                <TrendingUp size={18} className="text-emerald-500"/> Evolución de Ingresos
+                            </h3>
                             <p className="text-slate-400 text-xs mt-0.5">Curva de ingresos diarios según el periodo de tiempo</p>
                         </div>
                         <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5">
-                            <Filter size={13} /> {timeFilter === 'month' ? 'Diario' : 'Filtro Temporal'}
+                            <Filter size={13} /> {chartGranularity[timeFilter]}
                         </div>
                     </div>
                     <div className="h-[300px] w-full flex-1">
@@ -486,7 +524,7 @@ export default function DashboardHome() {
                 <div className="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm flex flex-col justify-between">
                     <div>
                         <h3 className="font-extrabold text-slate-800 text-base mb-1 flex items-center gap-2">
-                            <Package size={18} className="text-amber-500 animate-bounce" /> Ranking de Ventas
+                            <Package size={18} className="text-amber-500" /> Ranking de Ventas
                         </h3>
                         <p className="text-slate-400 text-xs mb-5">Los 5 productos más vendidos del periodo</p>
                     </div>
@@ -540,7 +578,9 @@ export default function DashboardHome() {
                     <div>
                         <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                             <div>
-                                <h3 className="font-extrabold text-slate-800 text-base">Últimos Movimientos</h3>
+                                <h3 className="font-extrabold text-slate-800 text-base flex items-center gap-2">
+                                    <Receipt size={18} className="text-violet-500"/> Últimos Movimientos
+                                </h3>
                                 <p className="text-slate-400 text-xs mt-0.5">Tickets de venta emitidos recientemente</p>
                             </div>
                             <button
@@ -617,7 +657,7 @@ export default function DashboardHome() {
                                         <p className="text-[10px] text-red-600 font-bold mt-0.5">Stock Mínimo Configurado: {item.min}</p>
                                     </div>
                                     <div className="text-right shrink-0">
-                                        <span className="block text-2xl font-black text-red-600 tracking-tight leading-none mb-0.5 animate-pulse">
+                                        <span className="block text-2xl font-black text-red-600 tracking-tight leading-none mb-0.5">
                                             {item.stock}
                                         </span>
                                         <span className="text-[9px] text-slate-400 font-bold uppercase">unid. disp</span>

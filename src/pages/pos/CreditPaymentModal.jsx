@@ -7,7 +7,7 @@ import { formatGuaranies, parseGuaraniesStr } from '../../utils/moneyUtils';
 import { fetchClientCredit, registerCreditPayment } from '../../utils/creditUtils';
 import CreditHistoryList from '../../components/credit/CreditHistoryList';
 
-export default function CreditPaymentModal({ onClose, cashier }) {
+export default function CreditPaymentModal({ onClose, cashier, shiftId }) {
   const [searchTerm,     setSearchTerm]     = useState('');
   const [clients,        setClients]        = useState([]);
   const [selectedClient, setSelectedClient] = useState(null);
@@ -68,6 +68,7 @@ export default function CreditPaymentModal({ onClose, cashier }) {
         note,
         cashierId:   cashier?.id,
         cashierName: cashier?.name,
+        shiftId,
       });
       sileo.success({ title: 'Pago registrado correctamente.' });
       const refreshed = await fetchClientCredit(selectedClient.id);

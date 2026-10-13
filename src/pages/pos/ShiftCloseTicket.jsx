@@ -24,9 +24,10 @@ export default function ShiftCloseTicket({ shiftData, salesTotal, expensesTotal 
         const configSnap = await getDoc(doc(db, 'settings', 'general'));
         if (configSnap.exists()) setStoreData(configSnap.data());
 
-        const salesSnap = await getDocs(
-          query(collection(db, 'sales'), where('shiftId', '==', shiftData.id))
-        );
+        const [salesSnap, creditPaymentsSnap] = await Promise.all([
+          getDocs(query(collection(db, 'sales'), where('shiftId', '==', shiftData.id))),
+          getDocs(query(collection(db, 'credit_payments'), where('shiftId', '==', shiftData.id))),
+        ]);
 
         let cash = 0, qr = 0, card = 0, transfer = 0, credit = 0;
         let canceledCount = 0, canceledTotal = 0, discountTotal = 0, ticketCount = 0;
@@ -44,13 +45,25 @@ export default function ShiftCloseTicket({ shiftData, salesTotal, expensesTotal 
           else if (s.paymentMethod === 'fiado')    credit   += net;
           else                                     cash     += net;
 
-          // Sumar costo de cada ítem vendido
-          (s.items || []).forEach(item => {
-            totalCost += parseFloat(item.cost || 0) * parseFloat(item.quantity || 0);
-          });
+          // Costo de mercadería vendida — el fiado todavía no se reconoce
+          // como venta real, así que su costo tampoco se cuenta hasta cobrarse.
+          if (s.paymentMethod !== 'fiado') {
+            (s.items || []).forEach(item => {
+              totalCost += parseFloat(item.cost || 0) * parseFloat(item.quantity || 0);
+            });
+          }
         });
 
-        setShiftDetail({ ticketCount, canceledCount, canceledTotal, discountTotal, cash, qr, card, transfer, credit, totalCost });
+        // Cobros de fiado recibidos durante este turno — entran como efectivo real,
+        // pero se muestran aparte de "Ventas efectivo" para no confundir una cosa con la otra.
+        let creditCollected = 0;
+        creditPaymentsSnap.docs.forEach(d => {
+          const p = d.data();
+          if (p.status === 'voided') return;
+          creditCollected += parseFloat(p.amount || 0);
+        });
+
+        setShiftDetail({ ticketCount, canceledCount, canceledTotal, discountTotal, cash, qr, card, transfer, credit, totalCost, creditCollected });
       } catch (e) { console.error(e); }
       finally { setLoading(false); }
     };
@@ -67,7 +80,8 @@ export default function ShiftCloseTicket({ shiftData, salesTotal, expensesTotal 
   const salesNet      = parseFloat(salesTotal   || 0);
   const expensesNet   = parseFloat(expensesTotal || 0);
   const digitalTotal  = (shiftDetail?.qr || 0) + (shiftDetail?.card || 0) + (shiftDetail?.transfer || 0);
-  const cashToDeliver = startingCash + (shiftDetail?.cash || 0) - expensesNet;
+  const creditCollected = shiftDetail?.creditCollected || 0;
+  const cashToDeliver = startingCash + (shiftDetail?.cash || 0) + creditCollected - expensesNet;
   const resultado     = salesNet - expensesNet;
   const totalCost     = shiftDetail?.totalCost || 0;
   const gananciaNeta  = salesNet - totalCost - expensesNet; // Ventas − Costo − Gastos
@@ -125,6 +139,9 @@ export default function ShiftCloseTicket({ shiftData, salesTotal, expensesTotal 
       <div className="space-y-1">
         <Row label="  Fondo inicial:"    value={g(startingCash)}                  indent />
         <Row label="  Ventas efectivo:"  value={`+ ${g(shiftDetail?.cash || 0)}`} color="text-green-700" indent />
+        {creditCollected > 0 && (
+          <Row label="  Cobros de Fiado:" value={`+ ${g(creditCollected)}`}       color="text-green-700" indent />
+        )}
         {expensesNet > 0 && (
           <Row label="  Gastos/Retiros:" value={`- ${g(expensesNet)}`}            color="text-red-500" indent />
         )}

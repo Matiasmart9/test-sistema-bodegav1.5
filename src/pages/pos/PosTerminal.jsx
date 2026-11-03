@@ -11,7 +11,7 @@ import {
   Search, ShoppingCart, Trash2, Plus, Minus, CreditCard, LogOut,
   Clock, DollarSign, Barcode, TrendingDown, Printer, X, Tag,
   Store, MoreVertical, Ban, RefreshCcw, AlertCircle, Loader2, PrinterCheck,
-  Package, WifiOff, ClipboardCheck, HandCoins, BookOpen
+  Package, WifiOff, ClipboardCheck, HandCoins, BookOpen, Receipt
 } from 'lucide-react';
 import PaymentModal from './PaymentModal';
 import { formatTime } from '../../utils/dateUtils';
@@ -25,6 +25,7 @@ import ConfirmModal from '../../components/ui/ConfirmModal';
 import { printTicketService } from '../../utils/printUtils';
 import CreditPaymentModal from './CreditPaymentModal';
 import ManualDebtModal from '../../components/credit/ManualDebtModal';
+import TicketPreviewModal from '../../components/credit/TicketPreviewModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER: genera el próximo ID de ticket usando transacción atómica en Firestore
@@ -129,6 +130,7 @@ export default function PosTerminal() {
   const [reprintSales,      setReprintSales]      = useState([]);
   const [reprintSearch,     setReprintSearch]     = useState('');
   const [voidSearch,        setVoidSearch]        = useState('');
+  const [previewTicketSale, setPreviewTicketSale] = useState(null);
 
   // Datos para el gasto y cierre
   const [expenseData,   setExpenseData]   = useState({ amount: '', reason: '' });
@@ -259,27 +261,60 @@ export default function PosTerminal() {
     });
   }, [products]);
 
+  // ─── Carga todas las ventas activas del día actual + turno actual ────────
+  const fetchDayAndShiftSales = async () => {
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    const endOfDay   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+    const queries = [
+      getDocs(query(collection(db, 'sales'), where('date', '>=', startOfDay), where('date', '<=', endOfDay))),
+    ];
+    if (currentShift?.id) {
+      queries.push(getDocs(query(collection(db, 'sales'), where('shiftId', '==', currentShift.id))));
+    }
+
+    const snaps = await Promise.all(queries);
+    const byId = new Map();
+    snaps.forEach(snap => {
+      snap.docs.forEach(d => {
+        if (!byId.has(d.id)) {
+          const data = d.data();
+          byId.set(d.id, {
+            id: d.id,
+            ...data,
+            dateObj: data.date?.toDate ? data.date.toDate() : new Date(data.date),
+          });
+        }
+      });
+    });
+
+    return Array.from(byId.values())
+      .filter(sale => sale.status !== 'canceled' && sale.source !== 'manual')
+      .sort((a, b) => b.dateObj - a.dateObj);
+  };
+
+  const matchesSaleSearch = (sale, rawTerm) => {
+    const term = (rawTerm || '').trim().toLowerCase();
+    if (!term) return true;
+    if ((sale.ticketId || '').toLowerCase().includes(term)) return true;
+    if ((sale.client?.name || '').toLowerCase().includes(term)) return true;
+    if ((sale.items || []).some(it => (it.name || '').toLowerCase().includes(term))) return true;
+    return false;
+  };
+
   // ─── Anulación de ventas ─────────────────────────────────────────────────
   const fetchRecentSales = async () => {
     if (!currentShift) return;
     try {
-      const q    = query(collection(db, 'sales'), where('shiftId', '==', currentShift.id));
-      const snap = await getDocs(q);
-      const sales = snap.docs
-        .map(d => {
-          const data = d.data();
-          return { id: d.id, ...data, dateObj: data.date?.toDate ? data.date.toDate() : new Date(data.date) };
-        })
-        .sort((a, b) => b.dateObj - a.dateObj)
-        .filter(sale => sale.status !== 'canceled')
-        .slice(0, 5);
-
+      const sales = await fetchDayAndShiftSales();
       setRecentSales(sales);
+      setVoidSearch('');
       setShowVoidModal(true);
       setShowOptionsMenu(false);
     } catch (error) {
       console.error('Error fetching sales:', error);
-      sileo.error({ title: 'Error al cargar ventas recientes: ' + error.message });
+      sileo.error({ title: 'Error al cargar ventas del día: ' + error.message });
     }
   };
 
@@ -287,17 +322,7 @@ export default function PosTerminal() {
   const fetchReprintSales = async () => {
     if (!currentShift) return;
     try {
-      const q    = query(collection(db, 'sales'), where('shiftId', '==', currentShift.id));
-      const snap = await getDocs(q);
-      const sales = snap.docs
-        .map(d => {
-          const data = d.data();
-          return { id: d.id, ...data, dateObj: data.date?.toDate ? data.date.toDate() : new Date(data.date) };
-        })
-        .filter(s => s.status !== 'canceled')
-        .sort((a, b) => b.dateObj - a.dateObj)
-        .slice(0, 6);  // Últimas 6 ventas
-
+      const sales = await fetchDayAndShiftSales();
       setReprintSales(sales);
       setReprintSearch('');
       setShowReprintModal(true);
@@ -439,10 +464,15 @@ export default function PosTerminal() {
         canceledAt: new Date(),
       });
 
-      // 2. Descontar del total del turno
-      await updateDoc(doc(db, 'shifts', currentShift.id), {
-        salesTotal: increment(-sale.total),
-      });
+      // 2. Descontar del total del turno (solo si no era fiado, ya que el fiado no sumó al turno)
+      const targetShiftId = (sale.shiftId && sale.shiftId !== 'unknown' && sale.shiftId !== 'MANUAL_ENTRY')
+        ? sale.shiftId
+        : currentShift.id;
+      if (sale.paymentMethod !== 'fiado' && targetShiftId) {
+        await updateDoc(doc(db, 'shifts', targetShiftId), {
+          salesTotal: increment(-sale.total),
+        }).catch(() => {});
+      }
 
       // 3. Devolver stock (batch para atomicidad)
       const stockBatch = writeBatch(db);
@@ -800,44 +830,55 @@ export default function PosTerminal() {
   // ── Pantalla de apertura de turno ─────────────────────────────────────────
   if (!currentShift) {
     return (
-      <div className="h-screen bg-slate-900 flex flex-col items-center justify-center p-4 text-white relative">
+      <div className="h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 flex flex-col items-center justify-center p-4 text-white relative overflow-hidden">
+        {/* Decoración de fondo sutil */}
+        <div className="absolute -top-32 -left-32 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
+
         <button
           onClick={handleLogout}
-          className="absolute top-4 right-4 flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
+          className="absolute top-5 right-5 flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white text-sm font-bold transition-all"
         >
-          <LogOut size={20}/> Salir
+          <LogOut size={18}/> Salir
         </button>
 
-        <div className="bg-slate-800 p-8 rounded-2xl shadow-2xl text-center max-w-md w-full border border-slate-700">
-          <Clock size={48} className="text-emerald-400 mx-auto mb-6"/>
-          <h2 className="text-2xl font-bold mb-2">El turno está cerrado</h2>
-          <p className="text-slate-400 mb-6">
-            {hasInventoryAccess ? '¿Qué querés hacer?' : 'Debe abrir caja para comenzar a vender.'}
+        <div className="bg-slate-900/80 backdrop-blur-xl p-8 rounded-3xl shadow-2xl text-center max-w-md w-full border border-slate-700/80 relative z-10">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-500/10 border border-emerald-500/30 flex items-center justify-center mx-auto mb-5 shadow-lg shadow-emerald-950/50">
+            <Clock size={34} className="text-emerald-400"/>
+          </div>
+          <span className="inline-block text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 mb-2">
+            Bodega El Grifo · V2.8
+          </span>
+          <h2 className="text-2xl font-black mb-1 tracking-tight">
+            {effectiveUser?.name ? `¡Hola, ${effectiveUser.name}!` : 'El turno está cerrado'}
+          </h2>
+          <p className="text-slate-400 text-sm mb-6">
+            {hasInventoryAccess ? 'El turno de caja está cerrado. ¿Qué querés hacer?' : 'Abvé tu turno de caja para comenzar a registrar ventas.'}
           </p>
           <button
             onClick={() => setShowOpenModal(true)}
-            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl mt-2 shadow-lg shadow-emerald-900/50 transition-all hover:scale-[1.02] flex items-center justify-center gap-2"
+            className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black py-4 rounded-xl mt-2 shadow-lg shadow-emerald-900/50 transition-all hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2"
           >
             <ShoppingCart size={20}/> INICIAR CAJA
           </button>
 
           {hasInventoryAccess && (
-            <div className="mt-5 pt-5 border-t border-slate-700 space-y-3">
-              <p className="text-xs uppercase tracking-wider text-slate-500 font-bold">o ir directo a</p>
+            <div className="mt-6 pt-5 border-t border-slate-800 space-y-2.5">
+              <p className="text-[11px] uppercase tracking-wider text-slate-500 font-bold">o acceder directamente a</p>
               {canManageInventorySummarized && (
                 <button
                   onClick={() => navigate('/productos')}
-                  className="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3.5 rounded-xl transition-all hover:scale-[1.02] flex items-center justify-center gap-2"
+                  className="w-full bg-slate-800/90 hover:bg-slate-700 text-slate-200 font-bold py-3.5 rounded-xl border border-slate-700 transition-all hover:scale-[1.01] flex items-center justify-center gap-2 text-sm"
                 >
-                  <Package size={18}/> INVENTARIO
+                  <Package size={18} className="text-emerald-400"/> INVENTARIO
                 </button>
               )}
               {canCheckCashierInventory && (
                 <button
                   onClick={() => navigate('/inventario-cajero')}
-                  className="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3.5 rounded-xl transition-all hover:scale-[1.02] flex items-center justify-center gap-2"
+                  className="w-full bg-slate-800/90 hover:bg-slate-700 text-slate-200 font-bold py-3.5 rounded-xl border border-slate-700 transition-all hover:scale-[1.01] flex items-center justify-center gap-2 text-sm"
                 >
-                  <ClipboardCheck size={18}/> INVENTARIO CAJERO
+                  <ClipboardCheck size={18} className="text-emerald-400"/> INVENTARIO CAJERO
                 </button>
               )}
             </div>
@@ -846,10 +887,11 @@ export default function PosTerminal() {
 
         {showOpenModal && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-            <div className="bg-slate-800 w-full max-w-md rounded-2xl p-6 border border-slate-700 shadow-2xl">
-              <h3 className="text-xl font-bold mb-4 text-white">Monto inicial en caja</h3>
+            <div className="bg-slate-900 w-full max-w-md rounded-2xl p-6 border border-slate-700 shadow-2xl">
+              <h3 className="text-xl font-bold mb-1 text-white">Monto inicial en caja</h3>
+              <p className="text-xs text-slate-400 mb-4">Ingresá el sencillo disponible para apertura de turno.</p>
               <div className="relative mb-6">
-                <span className="absolute left-3 top-3 text-emerald-500 font-bold text-lg select-none">₲</span>
+                <span className="absolute left-3.5 top-3.5 text-emerald-400 font-bold text-lg select-none">₲</span>
                 <input
                   type="text"
                   inputMode="numeric"
@@ -857,21 +899,21 @@ export default function PosTerminal() {
                   value={formatGuaranies(startingCash)}
                   onChange={e => setStartingCash(parseGuaraniesStr(e.target.value))}
                   onKeyDown={e => e.key === 'Enter' && handleOpenShift()}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg py-3 pl-10 pr-4
-                             text-white text-lg font-mono focus:border-emerald-500 focus:outline-none
-                             focus:ring-1 focus:ring-emerald-500"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl py-3.5 pl-10 pr-4
+                             text-white text-xl font-black font-mono focus:border-emerald-500 focus:outline-none
+                             focus:ring-2 focus:ring-emerald-500/30"
                   placeholder="0"
                 />
               </div>
               <button
                 onClick={handleOpenShift}
-                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg transition-colors"
+                className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg shadow-emerald-950/50"
               >
-                CONFIRMAR
+                CONFIRMAR APERTURA
               </button>
               <button
                 onClick={() => setShowOpenModal(false)}
-                className="w-full mt-3 text-slate-400 py-2 hover:text-white transition-colors"
+                className="w-full mt-2.5 text-slate-400 py-2 hover:text-white text-sm font-medium transition-colors"
               >
                 Cancelar
               </button>
@@ -989,14 +1031,27 @@ export default function PosTerminal() {
         </div>
       )}
 
+      {/* Modal de vista previa del ticket */}
+      {previewTicketSale && (
+        <TicketPreviewModal
+          sale={previewTicketSale}
+          onClose={() => setPreviewTicketSale(null)}
+        />
+      )}
+
       {/* Modal anular venta */}
       {showVoidModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-0 overflow-hidden flex flex-col max-h-[80vh] animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-0 overflow-hidden flex flex-col max-h-[85vh] animate-fadeIn">
             <div className="p-4 bg-rose-50 border-b border-rose-100 flex justify-between items-center">
-              <h3 className="text-lg font-bold text-rose-700 flex items-center gap-2">
-                <Ban size={20}/> Anular Venta
-              </h3>
+              <div>
+                <h3 className="text-lg font-bold text-rose-700 flex items-center gap-2">
+                  <Ban size={20}/> Anular Venta
+                </h3>
+                <p className="text-xs text-rose-500 font-medium">
+                  Ventas realizadas en el día ({recentSales.length} tickets)
+                </p>
+              </div>
               <button onClick={() => setShowVoidModal(false)} className="p-1 hover:bg-rose-100 rounded-full">
                 <X size={20} className="text-rose-400"/>
               </button>
@@ -1006,7 +1061,7 @@ export default function PosTerminal() {
                 <Search className="absolute left-3 top-3 text-gray-400" size={16}/>
                 <input
                   type="text"
-                  placeholder="Buscar por Nro Ticket..."
+                  placeholder="Buscar por Nro Ticket, producto o cliente..."
                   value={voidSearch}
                   onChange={e => setVoidSearch(e.target.value)}
                   className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm
@@ -1015,26 +1070,45 @@ export default function PosTerminal() {
               </div>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
-              {recentSales.filter(s => s.ticketId.toLowerCase().includes(voidSearch.toLowerCase())).length === 0 ? (
+              {recentSales.filter(s => matchesSaleSearch(s, voidSearch)).length === 0 ? (
                 <div className="text-center text-gray-400 py-8 text-sm flex flex-col items-center">
                   <Ban size={32} className="mb-2 opacity-20"/>
-                  No se encontraron ventas recientes.
+                  No se encontraron ventas en el día.
                 </div>
               ) : (
                 recentSales
-                  .filter(s => s.ticketId.toLowerCase().includes(voidSearch.toLowerCase()))
+                  .filter(s => matchesSaleSearch(s, voidSearch))
                   .map(sale => (
-                    <div key={sale.id} className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center hover:shadow-md transition-shadow">
-                      <div>
-                        <p className="font-bold text-gray-800 text-sm">{sale.ticketId}</p>
-                        <p className="text-xs text-gray-500 flex items-center gap-1">
+                    <div key={sale.id} className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center gap-3 hover:shadow-md transition-shadow">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-bold text-gray-800 text-sm">{sale.ticketId}</p>
+                          {sale.client?.name && sale.client.name !== 'SIN NOMBRE' && (
+                            <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                              {sale.client.name}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
                           <Clock size={10}/>
                           {formatTime(new Date(sale.date?.toDate ? sale.date.toDate() : sale.date))}
-                          {' • '}{sale.items.length} items
+                          {' • '}{sale.items?.length || 0} items
                         </p>
+                        {sale.items?.length > 0 && (
+                          <p className="text-[11px] text-gray-400 truncate mt-0.5">
+                            {sale.items.map(i => `${i.quantity}× ${i.name}`).join(', ')}
+                          </p>
+                        )}
                       </div>
-                      <div className="text-right flex items-center gap-3">
-                        <span className="font-bold text-gray-800">₲ {sale.total.toLocaleString()}</span>
+                      <div className="text-right flex items-center gap-2 shrink-0">
+                        <span className="font-bold text-gray-800 text-sm">₲ {sale.total.toLocaleString()}</span>
+                        <button
+                          onClick={() => setPreviewTicketSale(sale)}
+                          className="bg-slate-50 text-slate-600 p-2 rounded-lg hover:bg-slate-100 hover:text-slate-800 transition-colors border border-slate-200"
+                          title="Ver detalle del ticket"
+                        >
+                          <Receipt size={17}/>
+                        </button>
                         <button
                           onClick={() => handleVoidSale(sale)}
                           className="bg-rose-50 text-rose-600 p-2 rounded-lg hover:bg-rose-100 hover:text-rose-700 transition-colors border border-rose-100"
@@ -1047,8 +1121,8 @@ export default function PosTerminal() {
                   ))
               )}
             </div>
-            <div className="p-3 bg-rose-50/50 text-[10px] text-rose-400 text-center font-medium border-t border-rose-100">
-              Solo se muestran ventas del turno actual.
+            <div className="p-3 bg-rose-50/50 text-[10px] text-rose-500 text-center font-medium border-t border-rose-100">
+              Se muestran todas las ventas realizadas en el día ({recentSales.length} tickets).
             </div>
           </div>
         </div>
@@ -1057,12 +1131,17 @@ export default function PosTerminal() {
       {/* ── Modal Reimprimir Ticket ─────────────────────────────────────── */}
       {showReprintModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-0 overflow-hidden flex flex-col max-h-[80vh] animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-0 overflow-hidden flex flex-col max-h-[85vh] animate-fadeIn">
 
             <div className="p-4 bg-blue-50 border-b border-blue-100 flex justify-between items-center">
-              <h3 className="text-lg font-bold text-blue-700 flex items-center gap-2">
-                <PrinterCheck size={20}/> Reimprimir Ticket
-              </h3>
+              <div>
+                <h3 className="text-lg font-bold text-blue-700 flex items-center gap-2">
+                  <PrinterCheck size={20}/> Tickets del Día / Reimprimir
+                </h3>
+                <p className="text-xs text-blue-500 font-medium">
+                  Ventas realizadas en el día ({reprintSales.length} tickets)
+                </p>
+              </div>
               <button onClick={() => setShowReprintModal(false)} className="p-1 hover:bg-blue-100 rounded-full">
                 <X size={20} className="text-blue-400"/>
               </button>
@@ -1073,7 +1152,7 @@ export default function PosTerminal() {
                 <Search className="absolute left-3 top-3 text-gray-400" size={16}/>
                 <input
                   type="text"
-                  placeholder="Buscar por Nro Ticket..."
+                  placeholder="Buscar por Nro Ticket, producto o cliente..."
                   value={reprintSearch}
                   onChange={e => setReprintSearch(e.target.value)}
                   className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm
@@ -1084,34 +1163,52 @@ export default function PosTerminal() {
 
             <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
               {reprintSales
-                .filter(s => s.ticketId.toLowerCase().includes(reprintSearch.toLowerCase()))
+                .filter(s => matchesSaleSearch(s, reprintSearch))
                 .length === 0 ? (
                 <div className="text-center text-gray-400 py-8 text-sm flex flex-col items-center">
                   <PrinterCheck size={32} className="mb-2 opacity-20"/>
-                  No se encontraron ventas.
+                  No se encontraron ventas en el día.
                 </div>
               ) : (
                 reprintSales
-                  .filter(s => s.ticketId.toLowerCase().includes(reprintSearch.toLowerCase()))
+                  .filter(s => matchesSaleSearch(s, reprintSearch))
                   .map(sale => (
                     <div key={sale.id} className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <p className="font-bold text-gray-800 text-sm">{sale.ticketId}</p>
-                          <p className="text-xs text-gray-500 flex items-center gap-1">
+                      <div className="flex justify-between items-start mb-2 gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-bold text-gray-800 text-sm">{sale.ticketId}</p>
+                            {sale.client?.name && sale.client.name !== 'SIN NOMBRE' && (
+                              <span className="text-[10px] font-bold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">
+                                {sale.client.name}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
                             <Clock size={10}/>
                             {formatTime(sale.dateObj)}
                             {' • '}{sale.items?.length || 0} items
                             {' • '}₲ {sale.total?.toLocaleString()}
                           </p>
+                          {sale.items?.length > 0 && (
+                            <p className="text-[11px] text-gray-400 truncate mt-0.5">
+                              {sale.items.map(i => `${i.quantity}× ${i.name}`).join(', ')}
+                            </p>
+                          )}
                         </div>
                       </div>
                       <div className="flex gap-2">
                         <button
+                          onClick={() => setPreviewTicketSale(sale)}
+                          className="flex-1 flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2.5 rounded-lg transition-colors"
+                        >
+                          <Receipt size={15}/> Ver Ticket
+                        </button>
+                        <button
                           onClick={() => handleReprint(sale)}
                           className="flex-1 flex items-center justify-center gap-2 bg-gray-900 hover:bg-black text-white text-xs font-bold py-2.5 rounded-lg transition-colors"
                         >
-                          <Printer size={15}/> Reimprimir Ticket
+                          <Printer size={15}/> Reimprimir
                         </button>
                       </div>
                     </div>
@@ -1119,8 +1216,8 @@ export default function PosTerminal() {
               )}
             </div>
 
-            <div className="p-3 bg-blue-50/50 text-[10px] text-blue-400 text-center font-medium border-t border-blue-100">
-              Últimas 6 ventas del turno actual — buscá por número de ticket
+            <div className="p-3 bg-blue-50/50 text-[10px] text-blue-500 text-center font-medium border-t border-blue-100">
+              Se muestran todas las ventas realizadas en el día ({reprintSales.length} tickets).
             </div>
           </div>
         </div>
@@ -1171,27 +1268,32 @@ export default function PosTerminal() {
       )}
 
       {/* ── ÁREA IZQUIERDA: PRODUCTOS ─────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 bg-slate-100/80">
 
         {/* HEADER */}
-        <div className="bg-white h-20 shadow-sm border-b border-gray-100 flex items-center justify-between px-6 shrink-0 gap-6 z-20 sticky top-0">
-          <div className="flex items-center gap-3">
-            <div className="bg-gradient-to-br from-green-500 to-emerald-600 p-2.5 rounded-xl text-white shadow-lg shadow-green-200">
-              <Store size={24} strokeWidth={2.5}/>
+        <div className="bg-white/95 backdrop-blur-md h-20 shadow-[0_2px_15px_-3px_rgba(0,0,0,0.04)] border-b border-slate-200/80 flex items-center justify-between px-6 shrink-0 gap-5 z-20 sticky top-0">
+          <div className="flex items-center gap-3.5 shrink-0">
+            <div className="bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700 p-2.5 rounded-2xl text-white shadow-lg shadow-emerald-600/25 ring-2 ring-emerald-500/15">
+              <Store size={24} strokeWidth={2.4}/>
             </div>
             <div>
-              <h1 className="text-xl font-black text-gray-800 tracking-tight leading-none">
-                Bodega <span className="text-emerald-600">El Grifo</span>
-              </h1>
-              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">
-                Terminal de Venta
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-black text-slate-800 tracking-tight leading-none">
+                  Bodega <span className="bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">El Grifo</span>
+                </h1>
+                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/80">
+                  V2.8
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+                Terminal Punto de Venta
               </p>
             </div>
           </div>
 
           {/* BUSCADOR */}
           <div className="relative flex-1 max-w-2xl group">
-            <Search className="absolute left-4 top-3.5 text-gray-400 group-focus-within:text-emerald-500 transition-colors" size={20}/>
+            <Search className="absolute left-4 top-3.5 text-slate-400 group-focus-within:text-emerald-600 transition-colors" size={19}/>
             <input
               type="text"
               placeholder="Buscar producto por nombre, código o escanear..."
@@ -1199,18 +1301,38 @@ export default function PosTerminal() {
               onChange={e => setSearchTerm(e.target.value)}
               onKeyDown={handleScannerInput}
               autoFocus
-              className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 focus:bg-white
-                         focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 rounded-xl
-                         outline-none transition-all text-sm font-medium shadow-inner"
+              className="w-full pl-11 pr-24 py-3 bg-slate-100/90 border border-slate-200/90 focus:bg-white
+                         focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 rounded-2xl
+                         outline-none transition-all text-sm font-semibold text-slate-700 placeholder:text-slate-400 placeholder:font-medium shadow-inner"
             />
+            {searchTerm ? (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-2.5 p-1 rounded-lg bg-slate-200/80 hover:bg-slate-300 text-slate-600 transition-colors"
+                title="Limpiar búsqueda"
+              >
+                <X size={15}/>
+              </button>
+            ) : (
+              <div className="hidden sm:flex items-center gap-1 absolute right-3.5 top-3 px-2 py-1 rounded-lg bg-white border border-slate-200/80 text-[10px] font-bold text-slate-400 select-none pointer-events-none">
+                <Barcode size={12} className="text-emerald-600"/> Lector
+              </div>
+            )}
           </div>
 
-          <div className="flex items-center gap-3 pl-6">
-            <div className="text-right hidden xl:block mr-2">
-              <p className="text-sm font-bold text-gray-800">{effectiveUser?.name}</p>
-              <div className="flex items-center gap-1 justify-end">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"/>
-                <p className="text-[10px] text-emerald-600 font-bold uppercase">Turno Abierto</p>
+          <div className="flex items-center gap-2.5 shrink-0">
+            {/* Tarjeta de perfil de cajero activo */}
+            <div className="hidden xl:flex items-center gap-2.5 bg-slate-50 border border-slate-200/80 pl-2.5 pr-3.5 py-1.5 rounded-2xl">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white font-black text-xs flex items-center justify-center shadow-sm uppercase">
+                {(effectiveUser?.name || 'C').slice(0, 2)}
+              </div>
+              <div className="text-left leading-tight">
+                <p className="text-xs font-extrabold text-slate-800 truncate max-w-[120px]">{effectiveUser?.name}</p>
+                <div className="flex items-center gap-1 mt-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"/>
+                  <p className="text-[9px] text-emerald-600 font-black uppercase tracking-wider">Turno Abierto</p>
+                </div>
               </div>
             </div>
 
@@ -1218,79 +1340,87 @@ export default function PosTerminal() {
               <div className="relative">
                 <button
                   onClick={() => setShowOptionsMenu(!showOptionsMenu)}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-white text-gray-700 rounded-xl
-                             hover:bg-slate-50 transition-all font-bold text-sm border border-slate-200
-                             hover:border-slate-300 shadow-sm active:scale-95"
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all font-bold text-sm border shadow-sm active:scale-95 ${
+                    showOptionsMenu
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+                  }`}
                 >
                   <MoreVertical size={18}/> <span className="hidden lg:inline">Opciones</span>
                 </button>
 
                 {showOptionsMenu && (
-                  <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden z-50 animate-fadeIn ring-1 ring-black/5">
-                    {canRegisterExpenses && (
-                      <button
-                        onClick={() => { setShowExpenseModal(true); setShowOptionsMenu(false); }}
-                        className="w-full text-left px-4 py-3.5 hover:bg-rose-50 text-rose-600 font-bold text-sm flex items-center gap-3 transition-colors"
-                      >
-                        <div className="bg-rose-100 p-1.5 rounded-lg"><TrendingDown size={16}/></div>
-                        Registrar Gasto
-                      </button>
-                    )}
-                    {canRegisterExpenses && (
-                      <button
-                        onClick={fetchRecentSales}
-                        className="w-full text-left px-4 py-3.5 hover:bg-slate-50 text-slate-700 font-bold text-sm flex items-center gap-3 border-t border-gray-100 transition-colors"
-                      >
-                        <div className="bg-slate-100 p-1.5 rounded-lg"><Ban size={16}/></div>
-                        Anular Venta
-                      </button>
-                    )}
-                    {canRegisterExpenses && (
-                      <button
-                        onClick={fetchReprintSales}
-                        className="w-full text-left px-4 py-3.5 hover:bg-blue-50 text-blue-600 font-bold text-sm flex items-center gap-3 border-t border-gray-100 transition-colors"
-                      >
-                        <div className="bg-blue-100 p-1.5 rounded-lg"><PrinterCheck size={16}/></div>
-                        Reimprimir Ticket
-                      </button>
-                    )}
-                    {canManageInventorySummarized && (
-                      <button
-                        onClick={() => { navigate('/productos'); setShowOptionsMenu(false); }}
-                        className="w-full text-left px-4 py-3.5 hover:bg-emerald-50 text-emerald-600 font-bold text-sm flex items-center gap-3 border-t border-gray-100 transition-colors"
-                      >
-                        <div className="bg-emerald-100 p-1.5 rounded-lg"><Package size={16}/></div>
-                        Ver Inventario
-                      </button>
-                    )}
-                    {canCheckCashierInventory && (
-                      <button
-                        onClick={() => { navigate('/inventario-cajero'); setShowOptionsMenu(false); }}
-                        className="w-full text-left px-4 py-3.5 hover:bg-emerald-50 text-emerald-600 font-bold text-sm flex items-center gap-3 border-t border-gray-100 transition-colors"
-                      >
-                        <div className="bg-emerald-100 p-1.5 rounded-lg"><ClipboardCheck size={16}/></div>
-                        Inventario Cajero
-                      </button>
-                    )}
-                    {canManageFiado && (
-                      <button
-                        onClick={() => { setShowCreditModal(true); setShowOptionsMenu(false); }}
-                        className="w-full text-left px-4 py-3.5 hover:bg-amber-50 text-amber-700 font-bold text-sm flex items-center gap-3 border-t border-gray-100 transition-colors"
-                      >
-                        <div className="bg-amber-100 p-1.5 rounded-lg"><HandCoins size={16}/></div>
-                        Cobrar Fiado
-                      </button>
-                    )}
-                    {canManualFiado && (
-                      <button
-                        onClick={() => { setShowManualCreditModal(true); setShowOptionsMenu(false); }}
-                        className="w-full text-left px-4 py-3.5 hover:bg-amber-50 text-amber-700 font-bold text-sm flex items-center gap-3 border-t border-gray-100 transition-colors"
-                      >
-                        <div className="bg-amber-100 p-1.5 rounded-lg"><BookOpen size={16}/></div>
-                        Carga Manual de Fiado
-                      </button>
-                    )}
-                  </div>
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setShowOptionsMenu(false)}
+                    />
+                    <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden z-50 animate-fadeIn ring-1 ring-black/5 p-1.5 space-y-0.5">
+                      {canRegisterExpenses && (
+                        <button
+                          onClick={() => { setShowExpenseModal(true); setShowOptionsMenu(false); }}
+                          className="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-rose-50 text-rose-600 font-bold text-sm flex items-center gap-3 transition-colors"
+                        >
+                          <div className="bg-rose-100 p-1.5 rounded-lg"><TrendingDown size={16}/></div>
+                          Registrar Gasto
+                        </button>
+                      )}
+                      {canRegisterExpenses && (
+                        <button
+                          onClick={fetchRecentSales}
+                          className="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-slate-100 text-slate-700 font-bold text-sm flex items-center gap-3 transition-colors"
+                        >
+                          <div className="bg-slate-100 p-1.5 rounded-lg"><Ban size={16}/></div>
+                          Anular Venta
+                        </button>
+                      )}
+                      {canRegisterExpenses && (
+                        <button
+                          onClick={fetchReprintSales}
+                          className="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-blue-50 text-blue-600 font-bold text-sm flex items-center gap-3 transition-colors"
+                        >
+                          <div className="bg-blue-100 p-1.5 rounded-lg"><PrinterCheck size={16}/></div>
+                          Reimprimir Ticket
+                        </button>
+                      )}
+                      {canManageInventorySummarized && (
+                        <button
+                          onClick={() => { navigate('/productos'); setShowOptionsMenu(false); }}
+                          className="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-emerald-50 text-emerald-600 font-bold text-sm flex items-center gap-3 transition-colors"
+                        >
+                          <div className="bg-emerald-100 p-1.5 rounded-lg"><Package size={16}/></div>
+                          Ver Inventario
+                        </button>
+                      )}
+                      {canCheckCashierInventory && (
+                        <button
+                          onClick={() => { navigate('/inventario-cajero'); setShowOptionsMenu(false); }}
+                          className="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-emerald-50 text-emerald-600 font-bold text-sm flex items-center gap-3 transition-colors"
+                        >
+                          <div className="bg-emerald-100 p-1.5 rounded-lg"><ClipboardCheck size={16}/></div>
+                          Inventario Cajero
+                        </button>
+                      )}
+                      {canManageFiado && (
+                        <button
+                          onClick={() => { setShowCreditModal(true); setShowOptionsMenu(false); }}
+                          className="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-amber-50 text-amber-700 font-bold text-sm flex items-center gap-3 transition-colors"
+                        >
+                          <div className="bg-amber-100 p-1.5 rounded-lg"><HandCoins size={16}/></div>
+                          Cobrar Fiado
+                        </button>
+                      )}
+                      {canManualFiado && (
+                        <button
+                          onClick={() => { setShowManualCreditModal(true); setShowOptionsMenu(false); }}
+                          className="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-amber-50 text-amber-700 font-bold text-sm flex items-center gap-3 transition-colors"
+                        >
+                          <div className="bg-amber-100 p-1.5 rounded-lg"><BookOpen size={16}/></div>
+                          Carga Manual de Fiado
+                        </button>
+                      )}
+                    </div>
+                  </>
                 )}
               </div>
             )}
@@ -1298,94 +1428,148 @@ export default function PosTerminal() {
             <button
               onClick={prepareCloseShift}
               className="flex items-center gap-2 px-4 py-2.5 bg-rose-50 text-rose-600 rounded-xl
-                         hover:bg-rose-100 transition-all font-bold text-sm border border-rose-100
-                         hover:border-rose-200 shadow-sm active:scale-95"
+                         hover:bg-rose-600 hover:text-white transition-all font-bold text-sm border border-rose-200/80
+                         shadow-sm active:scale-95"
             >
-              <LogOut size={18}/> <span className="hidden lg:inline">Cerrar</span>
+              <LogOut size={18}/> <span className="hidden lg:inline">Cerrar Caja</span>
             </button>
           </div>
         </div>
 
         {/* BARRA CATEGORÍAS */}
-        <div className="h-16 bg-white/80 backdrop-blur-md border-b border-gray-200 flex items-center px-6 gap-3 overflow-x-auto shrink-0 scrollbar-hide z-10 sticky top-20">
+        <div className="h-16 bg-white/90 backdrop-blur-md border-b border-slate-200/80 flex items-center px-6 gap-2.5 overflow-x-auto shrink-0 scrollbar-hide z-10 sticky top-20">
           <div className="shrink-0 flex items-center scale-90 origin-left">
             <WeatherWidget/>
           </div>
-          <div className="h-8 w-px bg-gray-300 mx-2 shrink-0"/>
-          {categories.map(cat => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className={`px-5 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-all duration-200 active:scale-95 shadow-sm
-                ${selectedCategory === cat
-                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/30'
-                  : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-300 hover:text-gray-800 hover:shadow-md'}`}
-            >
-              {cat}
-            </button>
-          ))}
+          <div className="h-7 w-px bg-slate-200 mx-1.5 shrink-0"/>
+          {categories.map(cat => {
+            const isSelected = selectedCategory === cat;
+            const catCount = cat === 'Todas'
+              ? products.length
+              : products.filter(p => p.category === cat).length;
+
+            return (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={`px-4 py-2 rounded-xl text-xs font-extrabold whitespace-nowrap transition-all duration-200 active:scale-95 flex items-center gap-2 shrink-0
+                  ${isSelected
+                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-600/25 ring-2 ring-emerald-500/20'
+                    : 'bg-slate-50/90 text-slate-600 border border-slate-200/90 hover:bg-white hover:border-emerald-300 hover:text-emerald-700 hover:shadow-sm'}`}
+              >
+                <span>{cat}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-black ${
+                  isSelected ? 'bg-white/20 text-white' : 'bg-slate-200/70 text-slate-500'
+                }`}>
+                  {catCount}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         {/* GRID DE PRODUCTOS */}
-        <div className="flex-1 p-6 overflow-y-auto bg-slate-100">
+        <div className="flex-1 p-6 overflow-y-auto bg-gradient-to-b from-slate-100/70 to-slate-200/40 custom-scrollbar">
           {filteredProducts.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-gray-400 py-20">
-              <Package size={48} className="mb-3 opacity-20"/>
-              <p className="font-bold text-gray-500">No se encontraron productos</p>
-              <p className="text-sm mt-1">Probá con otro nombre, código o categoría.</p>
+            <div className="h-full flex flex-col items-center justify-center text-slate-400 py-20">
+              <div className="w-20 h-20 rounded-3xl bg-white shadow-sm border border-slate-200/80 flex items-center justify-center mb-4">
+                <Package size={38} className="text-slate-300"/>
+              </div>
+              <p className="font-extrabold text-slate-600 text-base">No se encontraron productos</p>
+              <p className="text-xs text-slate-400 mt-1">Probá con otro nombre, código o cambiá de categoría.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-5 pb-20">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4 pb-20">
               {filteredProducts.map((product, idx) => {
-                const stockVal    = parseFloat(product.stock);
-                const minVal      = parseFloat(product.low_stock);
+                const stockVal     = parseFloat(product.stock);
+                const minVal       = parseFloat(product.low_stock);
                 const isOutOfStock = stockVal <= 0;
-                const isLowStock  = !isOutOfStock && stockVal <= minVal;
-                const cartItem    = cart.find(i => i.id === product.id);
+                const isLowStock   = !isOutOfStock && stockVal <= minVal;
+                const cartItem     = cart.find(i => i.id === product.id);
 
                 return (
                   <div
                     key={idx}
                     onClick={() => addToCart(product)}
-                    className={`bg-white p-4 rounded-2xl shadow-sm border flex flex-col justify-between h-48 relative overflow-hidden group transition-all duration-300
+                    className={`group relative rounded-2xl p-4 flex flex-col justify-between h-48 overflow-hidden transition-all duration-200 select-none
                       ${isOutOfStock
-                        ? 'opacity-60 cursor-not-allowed border-transparent'
+                        ? 'bg-white/60 opacity-60 cursor-not-allowed border border-slate-200/70'
                         : cartItem
-                          ? 'cursor-pointer hover:shadow-xl hover:-translate-y-1 border-emerald-400 ring-2 ring-emerald-500/20'
-                          : 'cursor-pointer hover:shadow-xl hover:border-emerald-500/30 hover:-translate-y-1 border-transparent'}`}
+                          ? 'bg-gradient-to-b from-white to-emerald-50/40 cursor-pointer shadow-md hover:shadow-xl hover:-translate-y-1 border-2 border-emerald-500 ring-4 ring-emerald-500/10'
+                          : 'bg-white cursor-pointer shadow-sm hover:shadow-xl hover:border-emerald-400/70 hover:-translate-y-1 border border-slate-200/80'}`}
                   >
+                    {/* Barra superior de acento */}
                     <div
                       className={`absolute top-0 left-0 w-full h-1.5 transition-colors ${!isOutOfStock && 'group-hover:bg-emerald-500'}`}
-                      style={{ backgroundColor: isOutOfStock ? '#cbd5e1' : (product.color || '#cbd5e1') }}
+                      style={{ backgroundColor: isOutOfStock ? '#cbd5e1' : (product.color || '#10b981') }}
                     />
-                    {cartItem && (
-                      <div className="absolute top-3.5 left-3 bg-emerald-600 text-white text-[10px] font-black px-2 py-1 rounded-lg shadow-sm z-10">
-                        ×{cartItem.quantity}
+
+                    {/* Fila superior: Categoría/Cantidad en carrito + Stock */}
+                    <div className="flex items-center justify-between gap-1.5 pt-1">
+                      {cartItem ? (
+                        <span className="bg-emerald-600 text-white text-[11px] font-black px-2.5 py-0.5 rounded-lg shadow-sm flex items-center gap-1">
+                          ×{cartItem.quantity} en ticket
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate max-w-[95px]">
+                          {product.category || 'General'}
+                        </span>
+                      )}
+
+                      <div className={`text-[10px] font-black px-2 py-0.5 rounded-lg border flex items-center gap-1 shrink-0
+                        ${isOutOfStock
+                          ? 'bg-slate-100 text-slate-500 border-slate-200'
+                          : isLowStock
+                            ? 'bg-rose-50 text-rose-600 border-rose-200/80'
+                            : 'bg-emerald-50 text-emerald-700 border-emerald-200/70'}`}
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full ${
+                          isOutOfStock ? 'bg-slate-400' : isLowStock ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500'
+                        }`}/>
+                        {isOutOfStock
+                          ? 'Sin stock'
+                          : product.soldBy === 'weight'
+                            ? parseFloat(product.stock).toFixed(2) + ' kg'
+                            : product.stock + ' u.'}
                       </div>
-                    )}
-                    <div className={`absolute top-4 right-3 text-[10px] font-black px-2.5 py-1 rounded-lg border shadow-sm
-                      ${isOutOfStock ? 'bg-gray-100 text-gray-500 border-gray-200' : isLowStock ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}
-                    >
-                      {isOutOfStock
-                        ? 'Sin stock'
-                        : product.soldBy === 'weight'
-                          ? parseFloat(product.stock).toFixed(2) + ' kg'
-                          : product.stock + ' u.'}
                     </div>
-                    <div className="mt-3 pl-1 pt-2">
-                      <h3 className={`font-bold text-sm leading-snug line-clamp-2 mb-1 transition-colors ${isOutOfStock ? 'text-gray-500' : 'text-gray-800 group-hover:text-emerald-700'}`}>
+
+                    {/* Centro: Nombre y código */}
+                    <div className="my-auto py-1">
+                      <h3 className={`font-extrabold text-sm leading-snug line-clamp-2 transition-colors ${
+                        isOutOfStock ? 'text-slate-400' : 'text-slate-800 group-hover:text-emerald-700'
+                      }`}>
                         {product.name}
                       </h3>
                       {product.sku && (
-                        <p className="text-[10px] text-gray-400 flex items-center gap-1 font-mono tracking-wide">
-                          <Barcode size={10}/> {product.sku}
+                        <p className="text-[10px] text-slate-400 flex items-center gap-1 font-mono mt-1">
+                          <Barcode size={11} className="text-slate-300"/> {product.sku}
                         </p>
                       )}
                     </div>
-                    <div className="pl-1 mt-auto">
-                      <span className={`block font-black text-2xl tracking-tight ${isOutOfStock ? 'text-gray-400' : 'text-emerald-600'}`}>
-                        ₲ {product.price?.toLocaleString()}
-                      </span>
+
+                    {/* Pie de tarjeta: Precio + Botón rápido visual */}
+                    <div className="pt-2 border-t border-slate-100 flex items-end justify-between gap-2">
+                      <div>
+                        <span className="block text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none mb-0.5">
+                          Precio
+                        </span>
+                        <span className={`block font-black text-xl tracking-tight leading-none ${
+                          isOutOfStock ? 'text-slate-400' : 'text-emerald-600'
+                        }`}>
+                          ₲ {product.price?.toLocaleString()}
+                        </span>
+                      </div>
+
+                      {!isOutOfStock && (
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all shrink-0 ${
+                          cartItem
+                            ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/30'
+                            : 'bg-slate-100 text-slate-500 group-hover:bg-emerald-600 group-hover:text-white group-hover:shadow-sm'
+                        }`}>
+                          <Plus size={16} strokeWidth={2.8}/>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -1396,33 +1580,47 @@ export default function PosTerminal() {
       </div>
 
       {/* ── CARRITO (SIDEBAR DERECHO) ──────────────────────────────────── */}
-      <div className="w-96 bg-gray-50 border-l border-gray-200 flex flex-col shadow-2xl z-30 h-full">
+      <div className="w-96 bg-white border-l border-slate-200/90 flex flex-col shadow-2xl z-30 h-full">
 
         {/* Cart Header */}
-        <div className="h-20 flex items-center justify-between px-6 bg-slate-900 text-white shadow-md shrink-0">
-          <div className="flex items-center gap-3 font-bold text-lg">
-            <ShoppingCart size={22} className="text-emerald-400"/>
-            <span>Ticket de Venta</span>
+        <div className="h-20 flex items-center justify-between px-6 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white shadow-md shrink-0 border-b border-slate-800">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-inner">
+              <ShoppingCart size={20}/>
+            </div>
+            <div>
+              <h2 className="font-black text-base tracking-tight leading-none">Ticket de Venta</h2>
+              <p className="text-[10px] text-slate-400 font-semibold mt-1">
+                {cart.length === 0 ? 'Esperando productos...' : 'Detalle de compra actual'}
+              </p>
+            </div>
           </div>
-          <div className="text-xs font-bold bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700">
-            {cart.length} Items
+          <div className="text-xs font-black bg-emerald-500/15 text-emerald-300 px-3 py-1.5 rounded-xl border border-emerald-500/30">
+            {cart.length} {cart.length === 1 ? 'Ítem' : 'Ítems'}
           </div>
         </div>
 
         {/* Items del carrito */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto p-4 space-y-2.5 bg-slate-50/70 custom-scrollbar">
           {cart.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-gray-300 py-10">
-              <ShoppingCart size={40} className="mb-3 opacity-40"/>
-              <p className="text-sm font-bold text-gray-400">El carrito está vacío</p>
-              <p className="text-xs text-gray-400 mt-1 text-center max-w-[220px]">Tocá un producto para agregarlo al ticket.</p>
+            <div className="h-full flex flex-col items-center justify-center text-slate-300 py-10 px-6">
+              <div className="w-16 h-16 rounded-2xl bg-white border border-slate-200/80 shadow-xs flex items-center justify-center mb-3 text-slate-300">
+                <ShoppingCart size={30} />
+              </div>
+              <p className="text-sm font-extrabold text-slate-500">El carrito está vacío</p>
+              <p className="text-xs text-slate-400 mt-1 text-center leading-relaxed">
+                Tocá cualquier producto del catálogo o escaneá su código de barras para agregarlo al ticket.
+              </p>
             </div>
           )}
           {cart.map(item => (
-            <div key={item.id} className="flex gap-3 bg-white p-3 rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:border-emerald-100 transition-all group">
-              <div className="flex flex-col items-center justify-between bg-slate-50 rounded-lg w-10 py-1 border border-slate-200 shadow-inner shrink-0">
-                <button onClick={() => updateQuantity(item.id, 1)} className="w-full flex items-center justify-center text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded p-0.5 transition-colors">
-                  <Plus size={14}/>
+            <div key={item.id} className="flex gap-3 bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs hover:shadow-md hover:border-emerald-200 transition-all group">
+              <div className="flex flex-col items-center justify-between bg-slate-50 rounded-xl w-10 py-1 border border-slate-200/90 shrink-0">
+                <button
+                  onClick={() => updateQuantity(item.id, 1)}
+                  className="w-full flex items-center justify-center text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg p-1 transition-colors"
+                >
+                  <Plus size={13} strokeWidth={2.5}/>
                 </button>
                 <input
                   type="number"
@@ -1436,20 +1634,31 @@ export default function PosTerminal() {
                       handleQuantityChange(item.id, minQty);
                     }
                   }}
-                  className="w-full text-center bg-transparent font-black text-sm focus:outline-none p-0 appearance-none text-gray-800"
+                  className="w-full text-center bg-transparent font-black text-xs focus:outline-none p-0 appearance-none text-slate-800"
                 />
-                <button onClick={() => updateQuantity(item.id, -1)} className="w-full flex items-center justify-center text-gray-400 hover:text-rose-500 hover:bg-rose-50 rounded p-0.5 transition-colors">
-                  <Minus size={14}/>
+                <button
+                  onClick={() => updateQuantity(item.id, -1)}
+                  className="w-full flex items-center justify-center text-slate-500 hover:text-rose-500 hover:bg-rose-50 rounded-lg p-1 transition-colors"
+                >
+                  <Minus size={13} strokeWidth={2.5}/>
                 </button>
               </div>
-              <div className="flex-1 py-1">
-                <p className="text-sm font-bold text-gray-800 line-clamp-2 leading-tight">{item.name}</p>
-                <p className="text-[10px] text-gray-400 font-medium mt-1">Unit: ₲ {item.price.toLocaleString()}</p>
+              <div className="flex-1 py-0.5 min-w-0">
+                <p className="text-xs font-extrabold text-slate-800 line-clamp-2 leading-snug">{item.name}</p>
+                <p className="text-[11px] text-slate-400 font-semibold mt-1">
+                  ₲ {item.price.toLocaleString()} {item.soldBy === 'weight' ? '/ kg' : 'c/u'}
+                </p>
               </div>
-              <div className="text-right flex flex-col justify-between items-end py-1">
-                <p className="text-sm font-black text-gray-800">₲ {(item.price * (parseFloat(item.quantity) || 0)).toLocaleString()}</p>
-                <button onClick={() => removeFromCart(item.id)} className="text-gray-300 hover:text-rose-500 transition-colors p-1 rounded-lg hover:bg-rose-50">
-                  <Trash2 size={16}/>
+              <div className="text-right flex flex-col justify-between items-end py-0.5 shrink-0">
+                <p className="text-sm font-black text-slate-900">
+                  ₲ {(item.price * (parseFloat(item.quantity) || 0)).toLocaleString()}
+                </p>
+                <button
+                  onClick={() => removeFromCart(item.id)}
+                  className="text-slate-300 hover:text-rose-500 transition-colors p-1 rounded-lg hover:bg-rose-50"
+                  title="Quitar del ticket"
+                >
+                  <Trash2 size={15}/>
                 </button>
               </div>
             </div>
@@ -1457,26 +1666,26 @@ export default function PosTerminal() {
         </div>
 
         {/* Cart Footer */}
-        <div className="p-6 bg-white border-t border-gray-200 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-20">
+        <div className="p-5 bg-white border-t border-slate-200/90 shadow-[0_-10px_30px_rgba(15,23,42,0.04)] z-20">
 
           {/* Descuentos */}
-          <div className="mb-4">
+          <div className="mb-3.5">
             <button
               onClick={() => setShowDiscountModal(true)}
-              className={`w-full text-xs font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 border border-dashed
+              className={`w-full text-xs font-bold py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 border border-dashed
                 ${appliedDiscounts.length > 0
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                  : 'bg-slate-50 text-slate-500 border-slate-300 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300'}`}
+                  : 'bg-slate-50 text-slate-600 border-slate-300 hover:bg-emerald-50/50 hover:text-emerald-700 hover:border-emerald-300'}`}
             >
-              <Tag size={16}/> {appliedDiscounts.length > 0 ? 'Editar Promos' : 'Aplicar Desc/Promo'}
+              <Tag size={15}/> {appliedDiscounts.length > 0 ? 'Editar Promos Aplicadas' : 'Aplicar Descuento / Promo'}
             </button>
 
             {appliedDiscounts.length > 0 && (
-              <div className="mt-2 space-y-1 bg-emerald-50 p-3 rounded-xl border border-emerald-100 text-[10px]">
+              <div className="mt-2 space-y-1 bg-emerald-50/80 p-2.5 rounded-xl border border-emerald-200/70 text-[11px]">
                 {appliedDiscounts.map(d => (
-                  <div key={d.id} className="flex justify-between font-bold text-emerald-700">
-                    <span>{d.quantity}x {d.name}</span>
-                    <span>- ₲ {(d.type === 'fixed'
+                  <div key={d.id} className="flex justify-between font-bold text-emerald-800">
+                    <span>{d.quantity}× {d.name}</span>
+                    <span>− ₲ {(d.type === 'fixed'
                       ? d.value * d.quantity
                       : (subTotalAmount * (d.value / 100)) * d.quantity
                     ).toLocaleString()}</span>
@@ -1486,26 +1695,30 @@ export default function PosTerminal() {
             )}
           </div>
 
-          {/* Totales */}
-          <div className="flex justify-between text-gray-500 text-sm mb-1 font-medium">
-            <span>Subtotal</span>
-            <span>₲ {subTotalAmount.toLocaleString()}</span>
-          </div>
-
-          {discountTotal > 0 && (
-            <div className="flex justify-between text-emerald-600 font-bold text-sm mb-3">
-              <span>Descuento</span>
-              <span>- ₲ {discountTotal.toLocaleString()}</span>
+          {/* Totales en bloque destacado */}
+          <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-200/80 mb-4 space-y-1.5">
+            <div className="flex justify-between text-slate-500 text-xs font-bold">
+              <span>Subtotal</span>
+              <span>₲ {subTotalAmount.toLocaleString()}</span>
             </div>
-          )}
 
-          <div className="flex justify-between items-end text-gray-900 mb-6">
-            <span className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-1">Total a Pagar</span>
-            <span className="text-3xl font-black text-emerald-700">₲ {finalTotalAmount.toLocaleString()}</span>
+            {discountTotal > 0 && (
+              <div className="flex justify-between text-emerald-600 font-bold text-xs">
+                <span>Descuento</span>
+                <span>− ₲ {discountTotal.toLocaleString()}</span>
+              </div>
+            )}
+
+            <div className="pt-2 border-t border-slate-200/80 flex justify-between items-baseline">
+              <span className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Total a Pagar</span>
+              <span className="text-3xl font-black text-emerald-600 tracking-tight">
+                ₲ {finalTotalAmount.toLocaleString()}
+              </span>
+            </div>
           </div>
 
           {/* Botones acción */}
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-4 gap-2.5">
             <button
               onClick={() => setConfirmModal({
                     title: '¿Vaciar el carrito?',
@@ -1515,16 +1728,17 @@ export default function PosTerminal() {
                     onConfirm: () => { setCart([]); setAppliedDiscounts([]); },
                   })}
               disabled={cart.length === 0}
-              className="col-span-1 flex items-center justify-center p-3 rounded-xl border-2 border-slate-100 text-gray-400 hover:border-rose-100 hover:bg-rose-50 hover:text-rose-500 disabled:opacity-50 transition-all"
+              title="Vaciar carrito"
+              className="col-span-1 flex items-center justify-center p-3.5 rounded-xl border-2 border-slate-200/80 text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40 transition-all"
             >
-              <Trash2 size={22}/>
+              <Trash2 size={20}/>
             </button>
             <button
               onClick={() => setShowPaymentModal(true)}
               disabled={cart.length === 0}
-              className="col-span-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-emerald-200 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95 transition-all text-lg tracking-wide"
+              className="col-span-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black py-3.5 rounded-xl shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2 disabled:opacity-40 disabled:shadow-none active:scale-95 transition-all text-base tracking-wide"
             >
-              <CreditCard size={22}/> COBRAR
+              <CreditCard size={20}/> COBRAR
             </button>
           </div>
         </div>

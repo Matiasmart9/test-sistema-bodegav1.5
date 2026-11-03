@@ -12,9 +12,10 @@ const formatPaymentMethod = (method) => {
 };
 
 export default function TicketInvoice({
-  cart, total, amountPaid, change, paymentMethod,
+  cart = [], total = 0, amountPaid, change, paymentMethod,
   ticketId, date, client, copyLabel, cashierName,
-  subTotal, discountTotal, appliedDiscounts
+  subTotal, discountTotal, appliedDiscounts,
+  creditStatus
 }) {
   const [storeData, setStoreData] = useState({
     storeName: 'CARGANDO...', storeRuc: '', timbrado: '',
@@ -30,6 +31,12 @@ export default function TicketInvoice({
     };
     fetchSettings();
   }, []);
+
+  const safeDate = date instanceof Date
+    ? date
+    : date?.toDate
+      ? date.toDate()
+      : new Date(date || Date.now());
 
   let clientName = client?.name || 'SIN NOMBRE';
   if (clientName.toUpperCase() === 'CONSUMIDOR FINAL') clientName = 'SIN NOMBRE';
@@ -70,7 +77,7 @@ export default function TicketInvoice({
       <div className="mb-3 space-y-0.5 font-medium text-[11px] text-left">
         <div>
           <span className="font-bold">FECHA: </span>
-          <span>{date.toLocaleDateString()} {date.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', hour12: false})}</span>
+          <span>{safeDate.toLocaleDateString()} {safeDate.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', hour12: false})}</span>
         </div>
         <div>
           <span className="font-bold">TICKET: </span>
@@ -107,21 +114,48 @@ export default function TicketInvoice({
           const linea    = parseFloat(item.price) * parseFloat(item.quantity);
           const tasa     = item.tax === 5 ? 5 : 10;
           const ivaLinea = ivaIncluido(linea, tasa);
+          const itemStatus = creditStatus?.items?.[idx];
+
           return (
-            <div key={idx} className="flex items-start">
-              <span className="w-5 font-bold">{item.quantity}</span>
-              <div className="flex-1 px-1">
-                <span className="block font-medium leading-tight">{item.name}</span>
-                <span className="text-[10px] text-gray-500">
-                  ₲{parseInt(item.price).toLocaleString()} c/u · IVA {tasa}%
+            <div key={idx} className="flex flex-col">
+              <div className="flex items-start">
+                <span className="w-5 font-bold">{item.quantity}</span>
+                <div className="flex-1 px-1">
+                  <span className={`block font-medium leading-tight ${itemStatus?.status === 'paid' ? 'line-through text-gray-500' : ''}`}>
+                    {item.name}
+                  </span>
+                  <span className="text-[10px] text-gray-500">
+                    ₲{parseInt(item.price).toLocaleString()} c/u · IVA {tasa}%
+                  </span>
+                </div>
+                <span className="w-12 text-right text-[10px] text-gray-500 pt-0.5">
+                  {ivaLinea.toLocaleString()}
+                </span>
+                <span className="w-16 text-right font-bold text-sm">
+                  {linea.toLocaleString()}
                 </span>
               </div>
-              <span className="w-12 text-right text-[10px] text-gray-500 pt-0.5">
-                {ivaLinea.toLocaleString()}
-              </span>
-              <span className="w-16 text-right font-bold text-sm">
-                {linea.toLocaleString()}
-              </span>
+
+              {itemStatus && (
+                <div className="pl-5 pr-1 mt-0.5">
+                  {itemStatus.status === 'paid' && (
+                    <span className="inline-block text-[9px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded uppercase">
+                      ✓ PAGADO
+                    </span>
+                  )}
+                  {itemStatus.status === 'partial' && (
+                    <span className="inline-block text-[9px] font-black text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded uppercase">
+                      PARCIAL: Pagó ₲ {itemStatus.paidAmount.toLocaleString('es-PY')} · Falta ₲ {itemStatus.pendingAmount.toLocaleString('es-PY')}
+                      {itemStatus.unitsPaid > 0 && parseFloat(item.quantity) > 1 ? ` (${itemStatus.unitsPaid}/${item.quantity} u.)` : ''}
+                    </span>
+                  )}
+                  {itemStatus.status === 'pending' && (
+                    <span className="inline-block text-[9px] font-black text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded uppercase">
+                      PENDIENTE: ₲ {itemStatus.pendingAmount.toLocaleString('es-PY')}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
@@ -154,9 +188,26 @@ export default function TicketInvoice({
       <div className="text-[11px] font-bold mb-3 space-y-1 border border-gray-300 p-2 rounded bg-gray-50">
         <div className="flex justify-between"><span>MÉTODO:</span><span>{formatPaymentMethod(paymentMethod)}</span></div>
         {paymentMethod === 'fiado' ? (
-          <div className="flex justify-between text-sm pt-1 border-t border-gray-200 mt-1">
-            <span>SALDO A CRÉDITO:</span><span>₲ {total.toLocaleString()}</span>
-          </div>
+          creditStatus ? (
+            <>
+              <div className="flex justify-between text-emerald-700 pt-1 border-t border-gray-200 mt-1">
+                <span>PAGADO A CUENTA:</span>
+                <span>₲ {(creditStatus.paidAmount || 0).toLocaleString('es-PY')}</span>
+              </div>
+              <div className="flex justify-between text-sm font-black pt-0.5">
+                <span>SALDO PENDIENTE:</span>
+                <span className={creditStatus.pendingAmount > 0 ? 'text-rose-700' : 'text-emerald-700'}>
+                  {creditStatus.pendingAmount > 0
+                    ? `₲ ${creditStatus.pendingAmount.toLocaleString('es-PY')}`
+                    : '₲ 0 (CANCELADO)'}
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="flex justify-between text-sm pt-1 border-t border-gray-200 mt-1">
+              <span>SALDO A CRÉDITO:</span><span>₲ {total.toLocaleString()}</span>
+            </div>
+          )
         ) : (
           <>
             <div className="flex justify-between"><span>RECIBIDO:</span><span>₲ {(parseFloat(amountPaid) || total).toLocaleString()}</span></div>

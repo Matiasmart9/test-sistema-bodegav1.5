@@ -5,7 +5,14 @@ import { sileo } from 'sileo';
 import { HandCoins, Search, X, Loader2, Check, User, UserPlus, BookOpen } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { formatGuaranies, parseGuaraniesStr } from '../../utils/moneyUtils';
-import { fetchClientCredit, registerCreditPayment, voidCreditPayment, voidManualCharge } from '../../utils/creditUtils';
+import {
+  fetchClientCredit,
+  registerCreditPayment,
+  voidCreditPayment,
+  voidManualCharge,
+  toggleSalePaidItem,
+  markSalePaidItems,
+} from '../../utils/creditUtils';
 import CreditHistoryList from '../../components/credit/CreditHistoryList';
 import ManualDebtModal from '../../components/credit/ManualDebtModal';
 import ManualDebtForm from '../../components/credit/ManualDebtForm';
@@ -26,6 +33,8 @@ export default function CreditClientsList() {
   const [confirmModal, setConfirmModal] = useState(null);
   const [showManualModal, setShowManualModal] = useState(false); // "Agregar Cliente" (deuda anterior)
   const [showManualForm,  setShowManualForm]  = useState(false); // deuda manual dentro del detalle
+  const [selectedToPay,   setSelectedToPay]   = useState({});    // { [saleId]: number[] }
+  const [togglingItemKey, setTogglingItemKey] = useState(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -74,6 +83,7 @@ export default function CreditClientsList() {
     setSelected(row);
     setAmount('');
     setNote('');
+    setSelectedToPay({});
     setShowManualForm(false);
   };
 
@@ -83,6 +93,65 @@ export default function CreditClientsList() {
     setRows(prev => prev.map(r => r.client.id === selected.client.id ? { ...r, credit: refreshed } : r));
   };
 
+  // Calcula la suma y nombres de los productos marcados con tilde para cobrar ahora
+  const selectedItemsSummary = React.useMemo(() => {
+    if (!selected?.credit?.sales) return { count: 0, total: 0, names: [] };
+    let count = 0;
+    let total = 0;
+    const names = [];
+    for (const sale of selected.credit.sales) {
+      const idxs = selectedToPay[sale.id] || [];
+      if (!idxs.length) continue;
+      const items = sale.creditStatus?.items || [];
+      idxs.forEach(idx => {
+        const it = items.find(x => x.idx === idx);
+        if (it) {
+          count += 1;
+          total += it.pendingAmount || it.effectiveLine || 0;
+          names.push(it.name);
+        }
+      });
+    }
+    return { count, total, names };
+  }, [selected, selectedToPay]);
+
+  const handleToggleSelectItemToPay = (sale, item) => {
+    setSelectedToPay(prev => {
+      const current = prev[sale.id] || [];
+      const exists = current.includes(item.idx);
+      const nextForSale = exists ? current.filter(i => i !== item.idx) : [...current, item.idx];
+      const nextMap = { ...prev, [sale.id]: nextForSale };
+
+      // Recalcular el total seleccionado para actualizar el input de monto a cobrar
+      let sum = 0;
+      for (const s of (selected?.credit?.sales || [])) {
+        const idxs = nextMap[s.id] || [];
+        const items = s.creditStatus?.items || [];
+        idxs.forEach(idx => {
+          const it = items.find(x => x.idx === idx);
+          if (it) sum += it.pendingAmount || it.effectiveLine || 0;
+        });
+      }
+      const capped = Math.min(sum, selected?.credit?.balance || sum);
+      setAmount(capped > 0 ? String(Math.round(capped)) : '');
+      return nextMap;
+    });
+  };
+
+  const handleToggleManualItemPaid = async (sale, itemIdx) => {
+    const key = `${sale.id}-${itemIdx}`;
+    setTogglingItemKey(key);
+    try {
+      await toggleSalePaidItem(sale.id, itemIdx, sale.paidItemIndices || []);
+      await refreshSelected();
+    } catch (e) {
+      console.error(e);
+      sileo.error({ title: 'Error al actualizar el estado del producto.' });
+    } finally {
+      setTogglingItemKey(null);
+    }
+  };
+
   const numericAmount = parseFloat(amount) || 0;
   const isValidAmount = numericAmount > 0 && numericAmount <= (selected?.credit.balance || 0);
 
@@ -90,11 +159,17 @@ export default function CreditClientsList() {
     if (!isValidAmount) return;
     setSaving(true);
     try {
+      const autoNote = !note.trim() && selectedItemsSummary.names.length > 0
+        ? `Canceló: ${selectedItemsSummary.names.join(', ')}`
+        : note;
+
+      await markSalePaidItems(selectedToPay, selected.credit.sales || []);
+
       await registerCreditPayment({
         clientId:    selected.client.id,
         clientName:  selected.client.name,
         amount:      numericAmount,
-        note,
+        note:        autoNote,
         cashierId:   userData?.id,
         cashierName: userData?.name || 'Admin',
       });
@@ -102,6 +177,7 @@ export default function CreditClientsList() {
       await refreshSelected();
       setAmount('');
       setNote('');
+      setSelectedToPay({});
     } catch (e) {
       console.error(e);
       sileo.error({ title: 'Error al registrar el pago.' });
@@ -239,7 +315,7 @@ export default function CreditClientsList() {
       {/* DETALLE / MODAL */}
       {selected && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+          <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
             <div className="px-5 py-4 bg-amber-600 text-white flex items-center justify-between shrink-0">
               <h2 className="font-black text-lg flex items-center gap-2">
                 <HandCoins size={20}/> {selected.client.name}
@@ -261,7 +337,30 @@ export default function CreditClientsList() {
               {selected.credit.balance > 0 && (
                 <div className="space-y-3 mb-5">
                   <div>
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Registrar pago</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold text-gray-500 uppercase">
+                        Registrar pago (total, parcial o marcando productos abajo)
+                      </label>
+                      {selectedItemsSummary.count > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => { setSelectedToPay({}); setAmount(''); }}
+                          className="text-[11px] font-bold text-amber-700 hover:underline"
+                        >
+                          Limpiar selección ({selectedItemsSummary.count})
+                        </button>
+                      )}
+                    </div>
+
+                    {selectedItemsSummary.count > 0 && (
+                      <div className="mb-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center justify-between gap-2">
+                        <span className="truncate">
+                          <strong>{selectedItemsSummary.count} prod. marcados:</strong> {selectedItemsSummary.names.join(', ')}
+                        </span>
+                        <span className="font-black shrink-0">₲ {selectedItemsSummary.total.toLocaleString('es-PY')}</span>
+                      </div>
+                    )}
+
                     <div className="relative">
                       <span className="absolute left-3 top-3 text-amber-600 font-bold">₲</span>
                       <input
@@ -281,7 +380,11 @@ export default function CreditClientsList() {
                     type="text"
                     value={note}
                     onChange={e => setNote(e.target.value)}
-                    placeholder="Nota (opcional)"
+                    placeholder={
+                      selectedItemsSummary.names.length > 0
+                        ? `Canceló: ${selectedItemsSummary.names.join(', ')}`
+                        : 'Nota (opcional)'
+                    }
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400"
                   />
                   <button
@@ -291,7 +394,7 @@ export default function CreditClientsList() {
                                disabled:opacity-50 flex items-center justify-center gap-2 transition-all active:scale-95"
                   >
                     {saving ? <Loader2 size={18} className="animate-spin"/> : <Check size={18}/>}
-                    Registrar Pago
+                    Registrar Pago {numericAmount > 0 && isValidAmount ? `(₲ ${numericAmount.toLocaleString('es-PY')})` : ''}
                   </button>
                 </div>
               )}
@@ -323,6 +426,11 @@ export default function CreditClientsList() {
                 voidingId={voidingId}
                 onVoidPayment={handleVoidPayment}
                 onVoidCharge={handleVoidCharge}
+                previewPaymentAmount={isValidAmount ? numericAmount : 0}
+                selectedToPay={selectedToPay}
+                onToggleSelectItemToPay={handleToggleSelectItemToPay}
+                onToggleManualItemPaid={handleToggleManualItemPaid}
+                togglingItemKey={togglingItemKey}
               />
             </div>
           </div>

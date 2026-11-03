@@ -6,9 +6,9 @@ import {
   Coins, Calendar, Search, FileSpreadsheet, Loader2, User, 
   XCircle, ChevronLeft, ChevronRight, Filter, ChevronsLeft, 
   ChevronsRight, Plus, CheckCircle, RefreshCcw, X, Info, ArrowLeft,
-  UserPlus, UserCheck, ClipboardList, Trash2
+  UserPlus, UserCheck, ClipboardList, Trash2, History
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
 import { todayStrPY } from '../../utils/dateUtils';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import { sileo } from 'sileo';
@@ -18,6 +18,7 @@ import { formatGuaranies, parseGuaranies } from '../../utils/moneyUtils';
 const formatDatePY = (date) => {
   if (!date) return '-';
   const d = date?.toDate ? date.toDate() : new Date(date);
+  if (isNaN(d.getTime())) return '-';
   return new Intl.DateTimeFormat('es-PY', {
     day: '2-digit',
     month: '2-digit',
@@ -29,10 +30,12 @@ const formatDatePY = (date) => {
 const formatTime24 = (date) => {
   if (!date) return '-';
   const d = date?.toDate ? date.toDate() : new Date(date);
+  if (isNaN(d.getTime())) return '-';
   return new Intl.DateTimeFormat('es-PY', {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
+    hourCycle: 'h23',
     timeZone: 'America/Asuncion'
   }).format(d);
 };
@@ -42,6 +45,49 @@ const getCurrentMonthStr = () => {
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   return `${year}-${month}`;
+};
+
+// Calcula montos repuestos y pendientes soportando devoluciones parciales y compatibilidad hacia atrás
+const getInvestmentRepayInfo = (item) => {
+  const totalAmount = parseFloat(item?.amount) || 0;
+  const repayments = Array.isArray(item?.repayments) ? item.repayments : [];
+
+  if (item?.status === 'canceled') {
+    return {
+      totalAmount,
+      repaidAmount: 0,
+      pendingAmount: 0,
+      isPartial: false,
+      progressPct: 0,
+      repayments
+    };
+  }
+
+  if (item?.status === 'repaid') {
+    return {
+      totalAmount,
+      repaidAmount: totalAmount,
+      pendingAmount: 0,
+      isPartial: false,
+      progressPct: 100,
+      repayments
+    };
+  }
+
+  const rawRepaid = parseFloat(item?.repaidAmount) || 0;
+  const repaidAmount = Math.min(totalAmount, Math.max(0, rawRepaid));
+  const pendingAmount = Math.max(0, totalAmount - repaidAmount);
+  const isPartial = repaidAmount > 0 && pendingAmount > 0;
+  const progressPct = totalAmount > 0 ? Math.min(100, Math.round((repaidAmount / totalAmount) * 100)) : 0;
+
+  return {
+    totalAmount,
+    repaidAmount,
+    pendingAmount,
+    isPartial,
+    progressPct,
+    repayments
+  };
 };
 
 export default function InvestmentsList() {
@@ -56,6 +102,12 @@ export default function InvestmentsList() {
   // Modales
   const [showAddInvestorModal, setShowAddInvestorModal] = useState(false);
   const [showAddInvestmentModal, setShowAddInvestmentModal] = useState(false);
+  
+  // Modal de Reposición / Devolución (Parcial o Total)
+  const [repayModalItem, setRepayModalItem] = useState(null);
+  const [repayInputAmount, setRepayInputAmount] = useState('');
+  const [repayNote, setRepayNote] = useState('');
+  const [repaySubmitting, setRepaySubmitting] = useState(false);
   
   // Navegación interna (Nivel 1: null = Lista de Inversores, Nivel 2: objeto = Detalle del Inversor)
   const [selectedInvestor, setSelectedInvestor] = useState(null);
@@ -168,6 +220,8 @@ export default function InvestmentsList() {
         investorId: selectedInvestor.id,
         investorName: selectedInvestor.name,
         amount: parseGuaranies(formData.amount),
+        repaidAmount: 0,
+        repayments: [],
         reason: formData.reason.trim(),
         date: investmentDate,
         status: 'pending',
@@ -191,28 +245,74 @@ export default function InvestmentsList() {
     }
   };
 
-  // --- MARCAR COMO REPUESTO (REPONER) ---
-  const handleRepay = (id, amount) => {
-    setConfirmModal({
-      title: '¿Confirmar reposición de inversión?',
-      description: `Monto: ₲ ${amount.toLocaleString()}. Se marcará como devuelta al inversor.`,
-      confirmText: 'Sí, reponer',
-      variant: 'success',
-      onConfirm: async () => {
-        try {
-          await updateDoc(doc(db, 'investments', id), {
-            status: 'repaid',
-            repaidBy: userData?.name || 'Administrador',
-            repaidAt: new Date()
-          });
-          sileo.success({ title: 'Inversión repuesta con éxito.' });
-          fetchData();
-        } catch (error) {
-          console.error(error);
-          sileo.error({ title: 'No se pudo registrar la reposición.' });
-        }
-      },
-    });
+  // --- ABRIR MODAL DE REPOSICIÓN / DEVOLUCIÓN (PARCIAL O TOTAL) ---
+  const handleRepay = (item) => {
+    const info = getInvestmentRepayInfo(item);
+    setRepayModalItem(item);
+    setRepayInputAmount(formatGuaranies(info.pendingAmount));
+    setRepayNote('');
+  };
+
+  const handleConfirmRepay = async (e) => {
+    e.preventDefault();
+    if (!repayModalItem) return;
+
+    const info = getInvestmentRepayInfo(repayModalItem);
+    const enteredAmount = parseGuaranies(repayInputAmount);
+
+    if (!enteredAmount || enteredAmount <= 0) {
+      return sileo.warning({ title: 'Ingresa un importe válido mayor a 0.' });
+    }
+
+    if (enteredAmount > info.pendingAmount) {
+      return sileo.warning({
+        title: 'El monto supera el saldo pendiente',
+        description: `El saldo pendiente de esta inversión es ₲ ${info.pendingAmount.toLocaleString()}.`
+      });
+    }
+
+    setRepaySubmitting(true);
+    try {
+      const newRepaidAmount = info.repaidAmount + enteredAmount;
+      const isNowFullyRepaid = newRepaidAmount >= info.totalAmount;
+
+      const repaymentEntry = {
+        amount: enteredAmount,
+        date: new Date().toISOString(),
+        user: userData?.name || 'Administrador',
+        note: repayNote.trim() || (
+          isNowFullyRepaid && info.repaidAmount === 0
+            ? 'Reposición total'
+            : isNowFullyRepaid
+            ? 'Cancelación de saldo pendiente'
+            : 'Devolución parcial'
+        )
+      };
+
+      await updateDoc(doc(db, 'investments', repayModalItem.id), {
+        status: isNowFullyRepaid ? 'repaid' : 'pending',
+        repaidAmount: isNowFullyRepaid ? info.totalAmount : newRepaidAmount,
+        repayments: [...info.repayments, repaymentEntry],
+        repaidBy: userData?.name || 'Administrador',
+        repaidAt: new Date()
+      });
+
+      sileo.success({
+        title: isNowFullyRepaid
+          ? 'Inversión repuesta en su totalidad.'
+          : `Devolución parcial registrada (₲ ${enteredAmount.toLocaleString()}).`
+      });
+
+      setRepayModalItem(null);
+      setRepayInputAmount('');
+      setRepayNote('');
+      fetchData();
+    } catch (error) {
+      console.error('Error al registrar reposición:', error);
+      sileo.error({ title: 'No se pudo registrar la reposición.' });
+    } finally {
+      setRepaySubmitting(false);
+    }
   };
 
   // --- ANULAR REGISTRO ---
@@ -287,17 +387,213 @@ export default function InvestmentsList() {
 
   // --- EXPORTAR EXCEL ---
   const handleExportExcel = () => {
-    const dataToExport = filteredInvestments.map(item => ({
-      'Fecha': formatDatePY(item.dateObj),
-      'Hora': formatTime24(item.dateObj),
-      'Descripción / Concepto': item.reason,
-      'Monto': item.amount,
-      'Estado': item.status === 'canceled' ? 'ANULADO' : item.status === 'repaid' ? 'REPUESTO' : 'PENDIENTE',
-      'Registrado Por': item.user,
-      'Repuesto Por': item.repaidBy || '-'
-    }));
+    let totalOriginal = 0;
+    let totalRepuesto = 0;
+    let totalPendiente = 0;
 
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const dataToExport = filteredInvestments.map(item => {
+      const info = getInvestmentRepayInfo(item);
+      if (item.status !== 'canceled') {
+        totalOriginal += info.totalAmount;
+        totalRepuesto += info.repaidAmount;
+        totalPendiente += info.pendingAmount;
+      }
+
+      return {
+        'Fecha': formatDatePY(item.dateObj),
+        'Hora': formatTime24(item.dateObj),
+        'Descripción / Concepto': item.reason,
+        'Monto Original (₲)': info.totalAmount,
+        'Total Repuesto (₲)': info.repaidAmount,
+        'Pendiente de Reposición (₲)': info.pendingAmount,
+        'Estado': item.status === 'canceled'
+          ? 'ANULADO'
+          : item.status === 'repaid'
+          ? 'REPUESTO'
+          : info.isPartial
+          ? 'PARCIAL'
+          : 'PENDIENTE',
+        'Registrado Por': item.user,
+        'Repuesto Por': item.repaidBy || '-'
+      };
+    });
+
+    // Filas inferiores de resumen (Pendiente de reposición y Total repuesto)
+    const emptyRow = {
+      'Fecha': '',
+      'Hora': '',
+      'Descripción / Concepto': '',
+      'Monto Original (₲)': '',
+      'Total Repuesto (₲)': '',
+      'Pendiente de Reposición (₲)': '',
+      'Estado': '',
+      'Registrado Por': '',
+      'Repuesto Por': ''
+    };
+
+    const summaryTotalRow = {
+      'Fecha': '',
+      'Hora': '',
+      'Descripción / Concepto': 'TOTAL ACUMULADO',
+      'Monto Original (₲)': totalOriginal,
+      'Total Repuesto (₲)': totalRepuesto,
+      'Pendiente de Reposición (₲)': totalPendiente,
+      'Estado': '',
+      'Registrado Por': '',
+      'Repuesto Por': ''
+    };
+
+    const summaryPendingRow = {
+      'Fecha': '',
+      'Hora': '',
+      'Descripción / Concepto': 'PENDIENTE DE REPOSICIÓN',
+      'Monto Original (₲)': totalPendiente,
+      'Total Repuesto (₲)': '',
+      'Pendiente de Reposición (₲)': '',
+      'Estado': '',
+      'Registrado Por': '',
+      'Repuesto Por': ''
+    };
+
+    const summaryRepaidRow = {
+      'Fecha': '',
+      'Hora': '',
+      'Descripción / Concepto': 'TOTAL REPUESTO',
+      'Monto Original (₲)': totalRepuesto,
+      'Total Repuesto (₲)': '',
+      'Pendiente de Reposición (₲)': '',
+      'Estado': '',
+      'Registrado Por': '',
+      'Repuesto Por': ''
+    };
+
+    const allRows = [
+      ...dataToExport,
+      emptyRow,
+      summaryTotalRow,
+      summaryPendingRow,
+      summaryRepaidRow
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(allRows);
+
+    // Anchos de columna
+    ws['!cols'] = [
+      { wch: 13 }, // Fecha
+      { wch: 9 },  // Hora
+      { wch: 38 }, // Descripción / Concepto
+      { wch: 20 }, // Monto Original
+      { wch: 20 }, // Total Repuesto
+      { wch: 25 }, // Pendiente de Reposición
+      { wch: 14 }, // Estado
+      { wch: 18 }, // Registrado Por
+      { wch: 18 }, // Repuesto Por
+    ];
+
+    const borderThin = {
+      top: { style: 'thin', color: { rgb: 'E2E8F0' } },
+      bottom: { style: 'thin', color: { rgb: 'E2E8F0' } },
+      left: { style: 'thin', color: { rgb: 'E2E8F0' } },
+      right: { style: 'thin', color: { rgb: 'E2E8F0' } }
+    };
+
+    const range = XLSX.utils.decode_range(ws['!ref']);
+
+    // 1. Estilo de cabecera (Fila 0)
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const cellRef = XLSX.utils.encode_cell({ r: 0, c });
+      if (ws[cellRef]) {
+        ws[cellRef].s = {
+          fill: { fgColor: { rgb: '0F172A' } },
+          font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11 },
+          alignment: { horizontal: 'center', vertical: 'center' },
+          border: borderThin
+        };
+      }
+    }
+
+    // 2. Estilo de filas de datos
+    const dataEndRow = dataToExport.length;
+    for (let r = 1; r <= dataEndRow; r++) {
+      const estadoCell = ws[XLSX.utils.encode_cell({ r, c: 6 })];
+      const estadoVal = estadoCell ? estadoCell.v : '';
+      const isEven = r % 2 === 0;
+      const baseFill = isEven ? 'F8FAFC' : 'FFFFFF';
+
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const cellRef = XLSX.utils.encode_cell({ r, c });
+        const cell = ws[cellRef];
+        if (!cell) continue;
+
+        const isMoneyCol = c === 3 || c === 4 || c === 5;
+        let fontColor = '1E293B';
+        let isBold = false;
+        let cellFill = baseFill;
+
+        if (c === 3) {
+          isBold = true;
+          fontColor = estadoVal === 'ANULADO' ? '94A3B8' : '0F172A';
+        } else if (c === 4 && Number(cell.v) > 0) {
+          isBold = true;
+          fontColor = '047857';
+        } else if (c === 5 && Number(cell.v) > 0) {
+          isBold = true;
+          fontColor = 'C2410C';
+        } else if (c === 6) {
+          isBold = true;
+          if (estadoVal === 'REPUESTO') {
+            cellFill = 'D1FAE5';
+            fontColor = '065F46';
+          } else if (estadoVal === 'PARCIAL') {
+            cellFill = 'FEF3C7';
+            fontColor = '92400E';
+          } else if (estadoVal === 'PENDIENTE') {
+            cellFill = 'FFEDD5';
+            fontColor = 'C2410C';
+          } else if (estadoVal === 'ANULADO') {
+            cellFill = 'FEE2E2';
+            fontColor = '991B1B';
+          }
+        }
+
+        cell.s = {
+          fill: { fgColor: { rgb: cellFill } },
+          font: { bold: isBold, color: { rgb: fontColor }, sz: 10 },
+          alignment: {
+            horizontal: isMoneyCol ? 'right' : (c === 0 || c === 1 || c === 6) ? 'center' : 'left',
+            vertical: 'center'
+          },
+          border: borderThin,
+          ...(isMoneyCol && typeof cell.v === 'number' ? { numFmt: '#,##0' } : {})
+        };
+      }
+    }
+
+    // 3. Estilo de las filas inferiores de Resumen (Total Acumulado, Pendiente de Reposición, Total Repuesto)
+    const totalRowIdx = dataEndRow + 2;
+    const pendingRowIdx = dataEndRow + 3;
+    const repaidRowIdx = dataEndRow + 4;
+
+    const styleSummaryRow = (rowIdx, bgRgb, textRgb) => {
+      for (let c = 2; c <= 5; c++) {
+        const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c });
+        if (!ws[cellRef]) ws[cellRef] = { t: 's', v: '' };
+        const cell = ws[cellRef];
+        const isNum = typeof cell.v === 'number';
+        cell.s = {
+          fill: { fgColor: { rgb: bgRgb } },
+          font: { bold: true, color: { rgb: textRgb }, sz: 11 },
+          alignment: { horizontal: c === 2 ? 'left' : 'right', vertical: 'center' },
+          border: borderThin,
+          ...(isNum ? { numFmt: '#,##0' } : {})
+        };
+      }
+    };
+
+    styleSummaryRow(totalRowIdx, '0F172A', 'FFFFFF');   // Total Acumulado (Oscuro)
+    styleSummaryRow(pendingRowIdx, 'FFEDD5', 'C2410C'); // Pendiente de Reposición (Naranja)
+    styleSummaryRow(repaidRowIdx, 'D1FAE5', '065F46');  // Total Repuesto (Verde Esmeralda)
+
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Inversiones");
     XLSX.writeFile(wb, `Inversiones_${selectedInvestor.name}_${dateRange.start}_al_${dateRange.end}.xlsx`);
@@ -307,22 +603,20 @@ export default function InvestmentsList() {
   const getInvestorStats = (investorId) => {
     const list = allInvestments.filter(item => item.investorId === investorId);
 
-    const active = list
-      .filter(e => e.status !== 'canceled')
-      .reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+    let active = 0;
+    let pending = 0;
+    let repaid = 0;
 
-    const pending = list
-      .filter(e => e.status === 'pending')
-      .reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
-
-    const repaid = list
-      .filter(e => e.status === 'repaid')
-      .reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+    list.forEach(curr => {
+      if (curr.status === 'canceled') return;
+      const info = getInvestmentRepayInfo(curr);
+      active += info.totalAmount;
+      pending += info.pendingAmount;
+      repaid += info.repaidAmount;
+    });
 
     return { active, pending, repaid, count: list.length };
   };
-
-
 
   // Filtrado de inversiones del inversor seleccionado (Nivel 2)
   const getFilteredInvestments = () => {
@@ -366,7 +660,11 @@ export default function InvestmentsList() {
 
     // 4. Filtrar por estado
     if (statusFilter !== 'all') {
-      list = list.filter(item => item.status === statusFilter);
+      if (statusFilter === 'partial') {
+        list = list.filter(item => getInvestmentRepayInfo(item).isPartial);
+      } else {
+        list = list.filter(item => item.status === statusFilter);
+      }
     }
 
     // Ordenar por fecha descendente
@@ -417,7 +715,7 @@ export default function InvestmentsList() {
 
             <button 
               onClick={() => setShowAddInvestorModal(true)}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-3 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center gap-2 text-sm md:text-base shrink-0 active:scale-95"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-3 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center gap-2 text-sm md:text-base shrink-0 active:scale-95 cursor-pointer"
             >
               <UserPlus size={18} /> Registrar Inversor
             </button>
@@ -436,16 +734,13 @@ export default function InvestmentsList() {
               <p className="text-sm text-slate-400 max-w-sm">Registra a las personas que aportan capital al negocio para comenzar a gestionar sus inversiones.</p>
               <button 
                 onClick={() => setShowAddInvestorModal(true)}
-                className="mt-2 bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 font-bold px-4 py-2 rounded-xl transition-all"
+                className="mt-2 bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 font-bold px-4 py-2 rounded-xl transition-all cursor-pointer"
               >
                 Crear Primer Inversor
               </button>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              
-
-
               {/* Tarjetas de Inversores */}
               {investors.map(inv => {
                 const stats = getInvestorStats(inv.id);
@@ -535,7 +830,7 @@ export default function InvestmentsList() {
 
             <button 
               onClick={() => setShowAddInvestmentModal(true)}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-3 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center gap-2 text-sm md:text-base shrink-0 active:scale-95"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-3 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center gap-2 text-sm md:text-base shrink-0 active:scale-95 cursor-pointer"
             >
               <Plus size={18} /> Registrar Inversión
             </button>
@@ -626,7 +921,7 @@ export default function InvestmentsList() {
             </div>
 
             {/* Estado */}
-            <div className="w-full lg:w-36">
+            <div className="w-full lg:w-44">
               <select
                 value={statusFilter}
                 onChange={(e)=>setStatusFilter(e.target.value)}
@@ -634,6 +929,7 @@ export default function InvestmentsList() {
               >
                 <option value="all">Todos</option>
                 <option value="pending">Pendientes</option>
+                <option value="partial">Parciales</option>
                 <option value="repaid">Repuestos</option>
                 <option value="canceled">Anulados</option>
               </select>
@@ -678,26 +974,74 @@ export default function InvestmentsList() {
                       const isPending = item.status === 'pending';
                       const isRepaid = item.status === 'repaid';
                       const isCanceled = item.status === 'canceled';
+                      const info = getInvestmentRepayInfo(item);
 
                       return (
                         <tr key={item.id} className={`hover:bg-slate-50/50 transition-colors ${isCanceled ? 'bg-slate-50 opacity-60' : ''}`}>
-                          <td className="px-6 py-4 text-slate-600 whitespace-nowrap font-medium">
+                          <td className="px-6 py-4 text-slate-600 whitespace-nowrap font-medium align-top">
                             {formatDatePY(item.dateObj)}
                             <span className="text-xs text-slate-400 ml-2.5 font-bold bg-slate-100 px-2 py-0.5 rounded-md">
                               {formatTime24(item.dateObj)}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-slate-700 font-semibold max-w-[320px] truncate" title={item.reason}>
-                            {item.reason}
+                          <td className="px-6 py-4 text-slate-700 font-semibold max-w-[340px] align-top">
+                            <div className="truncate" title={item.reason}>
+                              {item.reason}
+                            </div>
+                            {info.repayments.length > 0 && (
+                              <div className="mt-1.5 space-y-1">
+                                {info.repayments.map((rep, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="inline-flex items-center gap-1.5 text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200/80 px-2 py-0.5 rounded-md font-semibold mr-1.5"
+                                  >
+                                    <CheckCircle size={11} className="text-emerald-600 shrink-0" />
+                                    <span>Devuelto: ₲ {(parseFloat(rep.amount) || 0).toLocaleString()}</span>
+                                    <span className="text-emerald-500">·</span>
+                                    <span className="text-slate-500 font-medium">{formatDatePY(rep.date)}</span>
+                                    {rep.note && rep.note !== 'Devolución parcial' && rep.note !== 'Reposición total' && (
+                                      <span className="text-slate-400 italic truncate max-w-[140px]" title={rep.note}>
+                                        ({rep.note})
+                                      </span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </td>
-                          <td className={`px-6 py-4 text-right font-black text-base whitespace-nowrap ${isCanceled ? 'text-slate-400 line-through' : isRepaid ? 'text-slate-600' : 'text-emerald-600'}`}>
-                            ₲ {item.amount.toLocaleString()}
+                          <td className="px-6 py-4 text-right whitespace-nowrap align-top">
+                            <div className={`font-black text-base ${isCanceled ? 'text-slate-400 line-through' : isRepaid ? 'text-slate-600' : 'text-emerald-600'}`}>
+                              ₲ {info.totalAmount.toLocaleString()}
+                            </div>
+                            {info.isPartial && (
+                              <div className="mt-1 space-y-0.5 text-[11px]">
+                                <div className="text-emerald-600 font-bold">
+                                  Repuesto: ₲ {info.repaidAmount.toLocaleString()}
+                                </div>
+                                <div className="text-orange-600 font-black">
+                                  Falta: ₲ {info.pendingAmount.toLocaleString()}
+                                </div>
+                                <div className="w-28 ml-auto h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/70">
+                                  <div
+                                    className="h-full bg-emerald-500 rounded-full transition-all"
+                                    style={{ width: `${info.progressPct}%` }}
+                                  />
+                                </div>
+                              </div>
+                            )}
                           </td>
-                          <td className="px-6 py-4 text-center whitespace-nowrap">
-                            {isPending && (
+                          <td className="px-6 py-4 text-center whitespace-nowrap align-top">
+                            {isPending && !info.isPartial && (
                               <span className="text-[10px] bg-orange-100 text-orange-700 px-2.5 py-1 rounded-full border border-orange-200 font-bold uppercase tracking-wide">
                                 Pendiente
                               </span>
+                            )}
+                            {info.isPartial && (
+                              <div className="inline-flex flex-col items-center gap-0.5">
+                                <span className="text-[10px] bg-amber-100 text-amber-800 px-2.5 py-1 rounded-full border border-amber-300 font-bold uppercase tracking-wide">
+                                  Parcial ({info.progressPct}%)
+                                </span>
+                              </div>
                             )}
                             {isRepaid && (
                               <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full border border-emerald-200 font-bold uppercase tracking-wide">
@@ -710,15 +1054,15 @@ export default function InvestmentsList() {
                               </span>
                             )}
                           </td>
-                          <td className="px-6 py-4 text-center whitespace-nowrap">
+                          <td className="px-6 py-4 text-center whitespace-nowrap align-top">
                             <div className="flex items-center justify-center gap-1">
                               
-                              {/* Botón reponer */}
+                              {/* Botón reponer (total o parcial) */}
                               {isPending && (
                                 <button
-                                  onClick={() => handleRepay(item.id, item.amount)}
+                                  onClick={() => handleRepay(item)}
                                   className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 p-2 rounded-lg transition-colors cursor-pointer"
-                                  title="Marcar como Repuesto"
+                                  title={info.isPartial ? "Registrar otra devolución / completar saldo" : "Registrar devolución total o parcial"}
                                 >
                                   <CheckCircle size={18}/>
                                 </button>
@@ -816,6 +1160,199 @@ export default function InvestmentsList() {
 
         </div>
       )}
+
+      {/* --- MODAL DE REPOSICIÓN / DEVOLUCIÓN (PARCIAL O TOTAL) --- */}
+      {repayModalItem && (() => {
+        const info = getInvestmentRepayInfo(repayModalItem);
+        const enteredAmount = parseGuaranies(repayInputAmount);
+        const isPartialEntered = enteredAmount > 0 && enteredAmount < info.pendingAmount;
+        const isFullEntered = enteredAmount === info.pendingAmount && info.pendingAmount > 0;
+        const remainingAfter = Math.max(0, info.pendingAmount - enteredAmount);
+
+        return (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-fadeIn">
+            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border border-slate-100">
+              
+              {/* Header */}
+              <div className="px-6 py-4 bg-slate-900 flex justify-between items-center text-slate-100">
+                <h2 className="text-lg font-black tracking-tight flex items-center gap-2">
+                  <CheckCircle size={20} className="text-emerald-400" /> Reponer / Devolver Inversión
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setRepayModalItem(null)}
+                  className="text-slate-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <form onSubmit={handleConfirmRepay} className="p-6 space-y-4">
+                
+                {/* Resumen de la inversión */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                  <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    Concepto
+                  </div>
+                  <div className="text-sm font-bold text-slate-800 break-words">
+                    {repayModalItem.reason}
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-200/80 grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <span className="text-slate-500 font-medium block">Monto Original:</span>
+                      <span className="font-black text-slate-800 text-sm">₲ {info.totalAmount.toLocaleString()}</span>
+                    </div>
+                    {info.repaidAmount > 0 && (
+                      <div>
+                        <span className="text-slate-500 font-medium block">Ya Devuelto:</span>
+                        <span className="font-black text-emerald-600 text-sm">₲ {info.repaidAmount.toLocaleString()}</span>
+                      </div>
+                    )}
+                    <div className={info.repaidAmount > 0 ? 'col-span-2 pt-1 border-t border-slate-200/60 flex justify-between items-center' : ''}>
+                      <span className="text-orange-600 font-bold block">Saldo Pendiente:</span>
+                      <span className="font-black text-orange-600 text-base">₲ {info.pendingAmount.toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Botones rápidos: Total vs Parcial */}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRepayInputAmount(formatGuaranies(info.pendingAmount))}
+                    className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                      isFullEntered
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200'
+                    }`}
+                  >
+                    Devolución Total (₲ {info.pendingAmount.toLocaleString()})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRepayInputAmount('')}
+                    className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                      !isFullEntered
+                        ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-amber-50 hover:text-amber-700 hover:border-amber-200'
+                    }`}
+                  >
+                    Devolución Parcial
+                  </button>
+                </div>
+
+                {/* Input de monto a devolver */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest block">
+                    Importe a devolver ahora (Gs.) *
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-black text-base">₲</span>
+                    <input
+                      type="text"
+                      required
+                      autoFocus
+                      placeholder="Ingresa monto"
+                      value={repayInputAmount}
+                      onChange={(e) => setRepayInputAmount(formatGuaranies(e.target.value))}
+                      className="w-full pl-9 pr-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 bg-slate-50 focus:bg-white text-base font-black transition-all text-slate-900"
+                    />
+                  </div>
+                </div>
+
+                {/* Indicador dinámico del resultado */}
+                {enteredAmount > 0 && enteredAmount <= info.pendingAmount && (
+                  <div className={`p-3 rounded-xl border text-xs font-semibold flex items-start gap-2 ${
+                    isPartialEntered
+                      ? 'bg-amber-50 border-amber-200 text-amber-800'
+                      : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  }`}>
+                    <Info size={16} className="shrink-0 mt-0.5" />
+                    {isPartialEntered ? (
+                      <div>
+                        Se registrará una <span className="font-black">devolución parcial de ₲ {enteredAmount.toLocaleString()}</span>.
+                        Quedará un saldo pendiente por reponer de <span className="font-black">₲ {remainingAfter.toLocaleString()}</span>.
+                      </div>
+                    ) : (
+                      <div>
+                        Se completará el <span className="font-black">100% de la reposición</span> y la inversión quedará marcada como <span className="font-black">REPUESTA</span>.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {enteredAmount > info.pendingAmount && (
+                  <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-bold">
+                    El importe ingresado supera el saldo pendiente (₲ {info.pendingAmount.toLocaleString()}).
+                  </div>
+                )}
+
+                {/* Nota opcional */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest block">
+                    Observación / Nota (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Entrega parcial en efectivo, transferencia..."
+                    value={repayNote}
+                    onChange={(e) => setRepayNote(e.target.value)}
+                    className="w-full p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 bg-slate-50 focus:bg-white text-xs font-semibold transition-all text-slate-800"
+                  />
+                </div>
+
+                {/* Historial de devoluciones previas si existen */}
+                {info.repayments.length > 0 && (
+                  <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                    <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                      <History size={12} /> Devoluciones anteriores ({info.repayments.length})
+                    </div>
+                    <div className="max-h-28 overflow-y-auto space-y-1 pr-1">
+                      {info.repayments.map((rep, i) => (
+                        <div key={i} className="flex justify-between items-center text-xs bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-100">
+                          <div>
+                            <span className="font-bold text-emerald-700">₲ {(parseFloat(rep.amount) || 0).toLocaleString()}</span>
+                            {rep.note && <span className="text-slate-500 ml-1.5">· {rep.note}</span>}
+                          </div>
+                          <span className="text-[11px] text-slate-400 font-medium">
+                            {formatDatePY(rep.date)} {formatTime24(rep.date)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Botones de acción */}
+                <div className="pt-3 border-t border-slate-100 flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setRepayModalItem(null)}
+                    className="px-5 py-2.5 border border-slate-200 text-slate-500 rounded-xl font-bold text-sm hover:bg-slate-50 transition-all cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={repaySubmitting || !enteredAmount || enteredAmount <= 0 || enteredAmount > info.pendingAmount}
+                    className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm shadow-md hover:shadow-lg transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                  >
+                    {repaySubmitting ? (
+                      <Loader2 className="animate-spin" size={16} />
+                    ) : !isFullEntered ? (
+                      'Registrar Devolución Parcial'
+                    ) : (
+                      'Confirmar Reposición Total'
+                    )}
+                  </button>
+                </div>
+
+              </form>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* --- MODAL REGISTRAR NUEVO INVERSOR --- */}
       {showAddInvestorModal && (

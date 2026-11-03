@@ -7,8 +7,8 @@ const TZ = 'America/Asuncion';
 const LOCALE = 'es-PY';
 
 /**
- * Formatea una fecha con hora completa.
- * Ej: "24/05/2026, 09:30"
+ * Formatea una fecha con hora completa en formato 24hs de Paraguay.
+ * Ej: "24/05/2026, 21:30"
  */
 export const formatDateTime = (date, options = {}) => {
   if (!date) return '-';
@@ -16,6 +16,8 @@ export const formatDateTime = (date, options = {}) => {
   return new Intl.DateTimeFormat(LOCALE, {
     day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
+    hour12: false,
+    hourCycle: 'h23',
     timeZone: TZ,
     ...options,
   }).format(d);
@@ -35,14 +37,16 @@ export const formatDate = (date) => {
 };
 
 /**
- * Formatea solo la hora.
- * Ej: "09:30"
+ * Formatea solo la hora en formato 24hs de Paraguay.
+ * Ej: "21:02"
  */
 export const formatTime = (date) => {
   if (!date) return '-';
   const d = date?.toDate ? date.toDate() : new Date(date);
   return new Intl.DateTimeFormat(LOCALE, {
     hour: '2-digit', minute: '2-digit',
+    hour12: false,
+    hourCycle: 'h23',
     timeZone: TZ,
   }).format(d);
 };

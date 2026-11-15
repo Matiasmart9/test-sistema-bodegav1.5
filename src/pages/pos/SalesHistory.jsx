@@ -100,16 +100,24 @@ export default function SalesHistory() {
       }));
 
       // Cobros de fiado del período — recién ahí esa plata cuenta como venta real
+      // y también se muestra en la tabla de Movimientos y Ventas para transparencia
       const creditSnap = await getDocs(query(
         collection(db, 'credit_payments'),
         where('date', '>=', startDate),
         where('date', '<=', endDate)
       ));
-      setCreditPayments(creditSnap.docs
-        .map(d => d.data())
-        .filter(p => p.status !== 'voided'));
+      let creditPaymentsData = creditSnap.docs.map(d => ({
+        id:   d.id,
+        type: 'credit_payment',
+        ...d.data(),
+        date: d.data().date?.toDate ? d.data().date.toDate() : new Date(d.data().date),
+      }));
+      if (userData.role !== 'admin') {
+        creditPaymentsData = creditPaymentsData.filter(p => p.cashierId === userData.id);
+      }
+      setCreditPayments(creditPaymentsData.filter(p => p.status !== 'voided'));
 
-      const combined = [...salesData, ...expensesData].sort((a, b) => b.date - a.date);
+      const combined = [...salesData, ...expensesData, ...creditPaymentsData].sort((a, b) => b.date - a.date);
       setMergedHistory(combined);
     } catch (error) {
       console.error('Error cargando datos:', error);
@@ -235,16 +243,10 @@ export default function SalesHistory() {
       return sileo.warning({ title: 'Complete todos los campos obligatorios.' });
     }
     try {
-      // Procesar la fecha seleccionada en zona horaria local
+      // Procesar la fecha seleccionada conservando la hora actual real en formato 24hs
       const [gy, gm, gd] = expenseData.date.split('-').map(Number);
       const now = new Date();
-      const isToday = (
-        now.getFullYear() === gy &&
-        (now.getMonth() + 1) === gm &&
-        now.getDate() === gd
-      );
-      // Si es hoy, registrar hora actual exacta. Si es retroactivo, mediodía local para evitar desfase de día.
-      const finalDate = isToday ? now : new Date(gy, gm - 1, gd, 12, 0, 0, 0);
+      const finalDate = new Date(gy, gm - 1, gd, now.getHours(), now.getMinutes(), now.getSeconds());
 
       await addDoc(collection(db, 'shift_movements'), {
         shiftId: 'ADMIN_ENTRY',
@@ -357,22 +359,34 @@ export default function SalesHistory() {
   // ───────────────────────────────────────────────────────────────────────────
   const filteredHistory = mergedHistory.filter(item => {
     const term = searchTerm.toLowerCase();
-    return item.type === 'sale'
-      ? (item.ticketId || '').toLowerCase().includes(term)
-      : (item.reason  || '').toLowerCase().includes(term);
+    if (!term) return true;
+    if (item.type === 'sale') {
+      return (item.ticketId || '').toLowerCase().includes(term) ||
+             (item.client?.name || '').toLowerCase().includes(term);
+    }
+    if (item.type === 'credit_payment') {
+      return (item.clientName || '').toLowerCase().includes(term) ||
+             (item.note || '').toLowerCase().includes(term) ||
+             'cobro fiado'.includes(term);
+    }
+    return (item.reason || '').toLowerCase().includes(term);
   });
 
   const activeSales   = filteredHistory.filter(i => i.type === 'sale'    && i.status !== 'canceled');
   const activeExpenses= filteredHistory.filter(i => i.type === 'expense' && i.status !== 'canceled');
+  const activeCreditPayments = filteredHistory.filter(i => i.type === 'credit_payment' && i.status !== 'voided');
 
   // El fiado pendiente todavía no es plata real — se excluye de brutas/netas/costo/ganancia
-  // hasta que se cobre (ver creditPayments, que sí suma a Ventas Netas cuando se cobra).
-  const nonCreditSales = activeSales.filter(s => s.paymentMethod !== 'fiado');
-  const creditCollected = creditPayments.reduce((a, p) => a + (parseFloat(p.amount) || 0), 0);
+  // hasta que se cobre (ver activeCreditPayments, que sí suma tanto a Ventas Brutas como a Ventas Netas cuando se cobra).
+  const nonCreditSales  = activeSales.filter(s => s.paymentMethod !== 'fiado');
+  const creditCollected = activeCreditPayments.reduce((a, p) => a + (parseFloat(p.amount) || 0), 0);
 
-  const grossSales     = nonCreditSales.reduce((a, s) => a + (s.subTotal || s.total || 0), 0);
+  const directGrossSales = nonCreditSales.reduce((a, s) => a + (s.subTotal || s.total || 0), 0);
+  const directNetSales   = nonCreditSales.reduce((a, s) => a + (s.total || 0), 0);
+
+  const grossSales     = directGrossSales + creditCollected;
   const totalDiscounts = nonCreditSales.reduce((a, s) => a + (s.discountTotal || 0), 0);
-  const netSales       = nonCreditSales.reduce((a, s) => a + (s.total || 0), 0) + creditCollected;
+  const netSales       = directNetSales + creditCollected;
   const totalCost      = nonCreditSales.reduce((a, sale) => {
     const c = sale.items?.reduce((ia, item) => ia + ((item.cost || 0) * (item.quantity || 0)), 0) || 0;
     return a + c;
@@ -387,7 +401,7 @@ export default function SalesHistory() {
   const handleExportExcel = () => {
     const wb = XLSX.utils.book_new();
 
-    // ── HOJA 1: REPORTE (ventas + gastos con Ganancia Bruta) ─────────────────
+    // ── HOJA 1: REPORTE (ventas + cobros de fiado + gastos con Ganancia Bruta) ─
     const reportRows = filteredHistory.map(item => {
       if (item.type === 'sale') {
         const isCanceled = item.status === 'canceled';
@@ -421,6 +435,25 @@ export default function SalesHistory() {
           'Costo Mercadería':  costoMerc,
           'Ganancia Bruta':    gananciaBruta,
           'Estado':            isCanceled ? 'ANULADO' : 'OK',
+        };
+      }
+      if (item.type === 'credit_payment') {
+        const isVoided = item.status === 'voided';
+        const amt = isVoided ? 0 : (parseFloat(item.amount) || 0);
+        return {
+          'Tipo':              'COBRO FIADO',
+          'Ticket':            '-',
+          'Fecha':             fmtDate(item.date),
+          'Hora':              formatTime(item.date),
+          'Cajero':            item.cashierName || 'Admin',
+          'Cliente':           item.clientName || 'SIN NOMBRE',
+          'Método Pago':       item.note || 'Cobro de deuda',
+          'Subtotal':          amt,
+          'Descuento':         0,
+          'Total + IVA':       amt,
+          'Costo Mercadería':  0,
+          'Ganancia Bruta':    amt,
+          'Estado':            isVoided ? 'ANULADO' : 'OK',
         };
       }
       // Gastos
@@ -526,8 +559,8 @@ export default function SalesHistory() {
   const getMethodName = (m) =>
     ({ cash: 'Efectivo', qr: 'QR', card: 'Tarjeta', transfer: 'Transferencia', fiado: 'Fiado' }[m] || 'Otro');
 
-  // Tarjeta KPI con tooltip
-  const KpiCard = ({ title, value, colorClass, icon: Icon, tooltip, accentBar, iconBg }) => (
+  // Tarjeta KPI con tooltip y desglose opcional
+  const KpiCard = ({ title, value, colorClass, icon: Icon, tooltip, accentBar, iconBg, subtitle }) => (
     <div className="relative overflow-hidden bg-white p-4 rounded-xl border border-gray-100 shadow-sm group hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300">
       {accentBar && <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r ${accentBar}`}/>}
       <div className="flex justify-between items-start mb-2">
@@ -553,6 +586,11 @@ export default function SalesHistory() {
       <h3 className={`text-2xl font-black ${colorClass}`}>
         ₲ {value.toLocaleString()}
       </h3>
+      {subtitle && (
+        <p className="text-[10px] font-semibold text-gray-400 mt-1 leading-tight">
+          {subtitle}
+        </p>
+      )}
     </div>
   );
 
@@ -883,7 +921,8 @@ export default function SalesHistory() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
         <KpiCard
           title="Ventas Brutas"    value={grossSales}     colorClass="text-gray-800"
-          tooltip="La suma de todas las ventas antes de descuentos y reembolsos."
+          tooltip="La suma de todas las ventas cobradas en el periodo (incluyendo cobros de clientes fiados) antes de descuentos."
+          subtitle={creditCollected > 0 ? `Ventas: ₲ ${directGrossSales.toLocaleString()} + Cobro fiado: ₲ ${creditCollected.toLocaleString()}` : null}
           icon={Receipt} iconBg="bg-slate-100 text-slate-500" accentBar="from-slate-400 to-slate-600"
         />
         <KpiCard
@@ -894,6 +933,7 @@ export default function SalesHistory() {
         <KpiCard
           title="Ventas Netas"     value={netSales}       colorClass="text-blue-600"
           tooltip="Ventas brutas menos descuentos y reembolsos. No incluye fiado pendiente — los cobros de fiado del período sí se suman acá."
+          subtitle={creditCollected > 0 ? `Ventas: ₲ ${directNetSales.toLocaleString()} + Cobro fiado: ₲ ${creditCollected.toLocaleString()}` : null}
           icon={Receipt} iconBg="bg-blue-50 text-blue-600" accentBar="from-blue-400 to-blue-600"
         />
         <KpiCard
@@ -942,12 +982,13 @@ export default function SalesHistory() {
                 </thead>
                 <tbody className="divide-y divide-gray-100 text-sm">
                   {currentItems.map(item => {
-                    const isExpense  = item.type === 'expense';
-                    const isCanceled = item.status === 'canceled';
+                    const isExpense       = item.type === 'expense';
+                    const isCreditPayment = item.type === 'credit_payment';
+                    const isCanceled      = item.status === 'canceled' || item.status === 'voided';
 
                     return (
                       <tr
-                        key={item.id}
+                        key={`${item.type}-${item.id}`}
                         className={`hover:bg-gray-50 transition-colors
                           ${isCanceled ? 'bg-gray-50 opacity-60' : ''}`}
                       >
@@ -956,6 +997,10 @@ export default function SalesHistory() {
                           {isExpense ? (
                             <span className="flex items-center gap-2 text-red-500">
                               <TrendingDown size={14} /> GASTO
+                            </span>
+                          ) : isCreditPayment ? (
+                            <span className="flex items-center gap-2 text-blue-600">
+                              <HandCoins size={14} /> COBRO FIADO
                             </span>
                           ) : (
                             <span className="flex items-center gap-2 text-green-600">
@@ -976,7 +1021,7 @@ export default function SalesHistory() {
                         <td className="px-6 py-4 text-gray-700">
                           <div className="flex items-center gap-2">
                             <User size={14} className="text-gray-400" />
-                            {item.userName || item.user}
+                            {item.cashierName || item.userName || item.user || 'Admin'}
                           </div>
                         </td>
 
@@ -989,10 +1034,25 @@ export default function SalesHistory() {
                                 <span className="ml-1 text-red-400 text-xs font-bold not-italic">(ANULADO)</span>
                               )}
                             </span>
+                          ) : isCreditPayment ? (
+                            <div className="flex flex-col">
+                              <span className={`font-semibold text-gray-800 ${isCanceled ? 'line-through' : ''}`}>
+                                Cliente: {item.clientName || 'Sin nombre'}
+                              </span>
+                              {item.note && (
+                                <span className="text-xs text-gray-500 italic">
+                                  {item.note}
+                                </span>
+                              )}
+                              {isCanceled && (
+                                <span className="text-[10px] text-red-400 font-bold">ANULADO</span>
+                              )}
+                            </div>
                           ) : (
                             <div className="flex flex-col">
                               <span className={isCanceled ? 'line-through' : ''}>
                                 {getMethodName(item.paymentMethod)}
+                                {item.client?.name ? ` — ${item.client.name}` : ''}
                               </span>
                               {item.appliedDiscounts?.length > 0 && (
                                 <span className="text-[10px] text-orange-500 font-bold flex items-center gap-1">
@@ -1013,17 +1073,24 @@ export default function SalesHistory() {
                               ? 'line-through text-gray-400'
                               : isExpense
                                 ? 'text-red-500'
-                                : 'text-gray-800'}`}
+                                : isCreditPayment
+                                  ? 'text-blue-600'
+                                  : 'text-gray-800'}`}
                         >
                           {isExpense ? '− ' : '+ '}
-                          ₲ {parseFloat(isExpense ? item.amount : item.total).toLocaleString()}
+                          ₲ {parseFloat(isExpense || isCreditPayment ? item.amount : item.total).toLocaleString()}
                         </td>
 
                         {/* Acciones (solo admin) */}
                         {userData.role === 'admin' && (
                           <td className="px-6 py-4 text-center">
                             <div className="flex justify-center gap-2">
-                              {!isExpense && !isCanceled && (
+                              {isCreditPayment && !isCanceled && (
+                                <span className="text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-200 px-2 py-1 rounded">
+                                  COBRO DEUDA
+                                </span>
+                              )}
+                              {!isExpense && !isCreditPayment && !isCanceled && (
                                 <button
                                   onClick={() => setSelectedSale(item)}
                                   className="text-blue-500 hover:bg-blue-50 p-2 rounded transition-colors"
@@ -1032,7 +1099,7 @@ export default function SalesHistory() {
                                   <Printer size={18} />
                                 </button>
                               )}
-                              {!isCanceled && (
+                              {!isCreditPayment && !isCanceled && (
                                 <button
                                   onClick={() =>
                                     isExpense

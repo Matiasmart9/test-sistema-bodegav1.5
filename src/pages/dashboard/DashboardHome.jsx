@@ -309,7 +309,7 @@ export default function DashboardHome() {
                 <div>
                     <div className="flex items-center gap-2 mb-1.5">
                         <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border border-emerald-200">
-                            v2.8 Bodega el Grifo
+                            v2.9 Bodega el Grifo
                         </span>
                     </div>
                     <h1 className="text-3xl font-black text-slate-800 tracking-tight">Panel de Control</h1>
@@ -608,7 +608,7 @@ export default function DashboardHome() {
                                         <tr key={sale.id} className="hover:bg-slate-50/50 transition-colors">
                                             <td className="px-6 py-4 font-mono font-extrabold text-slate-600">#{sale.ticketId}</td>
                                             <td className="px-6 py-4 text-slate-500 whitespace-nowrap">
-                                                {sale.dateObj.toLocaleDateString('es-PY')} <span className="text-slate-400 text-[10px] ml-1">{sale.dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                {sale.dateObj.toLocaleDateString('es-PY')} <span className="text-slate-400 text-[10px] ml-1">{sale.dateObj.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit', hour12: false, hourCycle: 'h23' })}</span>
                                             </td>
                                             <td className="px-6 py-4 text-slate-700 truncate max-w-[140px]">
                                                 {sale.client?.name || 'Consumidor Final'}

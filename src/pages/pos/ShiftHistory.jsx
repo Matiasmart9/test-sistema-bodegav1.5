@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ShiftCloseTicket from './ShiftCloseTicket';
+import { formatDate, formatTime } from '../../utils/dateUtils';
 
 export default function ShiftHistory() {
   const [allShifts,    setAllShifts]    = useState([]);
@@ -170,15 +171,19 @@ export default function ShiftHistory() {
         });
 
       } else {
-        // Turno real: consulta ventas por shiftId
-        const q    = query(collection(db, 'sales'), where('shiftId', '==', item.id));
-        const snap = await getDocs(q);
+        // Turno real: consulta ventas y cobros de fiado por shiftId
+        const [snap, creditSnap] = await Promise.all([
+          getDocs(query(collection(db, 'sales'), where('shiftId', '==', item.id))),
+          getDocs(query(collection(db, 'credit_payments'), where('shiftId', '==', item.id))),
+        ]);
 
         let cash = 0, qr = 0, card = 0, transfer = 0, credit = 0;
-        let profitCalc = 0, totalDiscounts = 0;
+        let profitCalc = 0, totalDiscounts = 0, ticketCount = 0;
 
         snap.docs.forEach(d => {
           const sale  = d.data();
+          if (sale.status === 'canceled') return;
+          ticketCount++;
           const total = parseFloat(sale.total || 0);
           if (sale.paymentMethod === 'cash')     cash     += total;
           else if (sale.paymentMethod === 'qr')  qr       += total;
@@ -191,11 +196,28 @@ export default function ShiftHistory() {
           profitCalc += (sp - (sale.discountTotal || 0));
         });
 
+        let creditCollected = 0;
+        const creditPayments = [];
+        creditSnap.docs.forEach(d => {
+          const p = d.data();
+          if (p.status === 'voided') return;
+          const amt = parseFloat(p.amount || 0);
+          creditCollected += amt;
+          creditPayments.push({
+            id: d.id,
+            clientName: p.clientName || 'Cliente',
+            amount: amt,
+            note: p.note || '',
+          });
+        });
+
         setShiftDetails({
           cashTotal:        cash,
           digitalTotal:     qr + card + transfer,
           breakdown:        { cash, qr, card, transfer, credit },
-          ticketCount:      snap.size,
+          creditCollected,
+          creditPayments,
+          ticketCount,
           calculatedProfit: profitCalc,
           totalDiscounts,
           isManual:         false,
@@ -218,41 +240,51 @@ export default function ShiftHistory() {
             Tipo:                    'REGISTRO MANUAL',
             Cajero:                  item.registeredBy,
             Estado:                  'COMPLETADO',
-            'Fecha Apertura':        item.openDate?.toLocaleDateString(),
+            'Fecha Apertura':        formatDate(item.openDate),
             'Hora Apertura':         '-',
             'Fecha Cierre':          '-',
             'Hora Cierre':           '-',
             'Base Inicial':          0,
             'Venta Bruta (Est.)':    item.salesTotal + item.discountTotal,
             'Descuentos (-)':        item.discountTotal,
+            'Fiado Cobrado':         0,
             'Total Neto Vendido':    item.salesTotal,
             'Ganancia Neta':         0,
             'Total Caja (Base+Ventas)': item.salesTotal,
           };
         }
 
-        const q    = query(collection(db, 'sales'), where('shiftId', '==', item.id));
-        const snap = await getDocs(q);
+        const [snap, creditSnap] = await Promise.all([
+          getDocs(query(collection(db, 'sales'), where('shiftId', '==', item.id))),
+          getDocs(query(collection(db, 'credit_payments'), where('shiftId', '==', item.id))),
+        ]);
         let totalDiscountShift = 0, finalProfit = 0;
 
         snap.docs.forEach(d => {
           const s = d.data();
+          if (s.status === 'canceled') return;
           totalDiscountShift += (s.discountTotal || 0);
           const sp = s.items?.reduce((pA, i) => pA + (((i.price||0)-(i.cost||0))*(i.quantity||0)), 0) || 0;
           finalProfit += (sp - (s.discountTotal || 0));
         });
 
+        const creditCollected = creditSnap.docs.reduce((acc, d) => {
+          const p = d.data();
+          return p.status === 'voided' ? acc : acc + (parseFloat(p.amount) || 0);
+        }, 0);
+
         return {
           Tipo:                    'TURNO',
           Cajero:                  item.userName,
           Estado:                  item.status === 'open' ? 'ABIERTO' : 'CERRADO',
-          'Fecha Apertura':        item.openDate?.toLocaleDateString(),
-          'Hora Apertura':         item.openDate?.toLocaleTimeString(),
-          'Fecha Cierre':          item.closeDate?.toLocaleDateString() || '-',
-          'Hora Cierre':           item.closeDate?.toLocaleTimeString() || '-',
+          'Fecha Apertura':        formatDate(item.openDate),
+          'Hora Apertura':         formatTime(item.openDate),
+          'Fecha Cierre':          item.closeDate ? formatDate(item.closeDate) : '-',
+          'Hora Cierre':           item.closeDate ? formatTime(item.closeDate) : '-',
           'Base Inicial':          item.startingCash || 0,
           'Venta Bruta (Est.)':    (item.salesTotal || 0) + totalDiscountShift,
           'Descuentos (-)':        totalDiscountShift,
+          'Fiado Cobrado':         creditCollected,
           'Total Neto Vendido':    item.salesTotal || 0,
           'Ganancia Neta':         finalProfit,
           'Total Caja (Base+Ventas)': (item.startingCash || 0) + (item.salesTotal || 0),
@@ -385,16 +417,16 @@ export default function ShiftHistory() {
                     </h3>
                     <div className="flex items-center gap-3 text-xs text-gray-500 mt-1 flex-wrap">
                       <span className="flex items-center gap-1">
-                        <Calendar size={12} /> {item.openDate?.toLocaleDateString()}
+                        <Calendar size={12} /> {formatDate(item.openDate)}
                       </span>
                       {!isManual && (
                         <span className="flex items-center gap-1">
-                          <Clock size={12} /> Apertura: {item.openDate?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          <Clock size={12} /> Apertura: {formatTime(item.openDate)}
                         </span>
                       )}
                       {!isManual && item.closeDate && (
                         <span className="flex items-center gap-1">
-                          <Clock size={12} /> Cierre: {item.closeDate?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          <Clock size={12} /> Cierre: {formatDate(item.closeDate) !== formatDate(item.openDate) ? `${formatDate(item.closeDate)} ` : ''}{formatTime(item.closeDate)}
                         </span>
                       )}
                       {isManual && (
@@ -463,10 +495,26 @@ export default function ShiftHistory() {
                               <span>Ventas</span><span>₲ {shiftDetails.breakdown.cash.toLocaleString()}</span>
                             </div>
                             {!isManual && (
-                              <div className="border-t border-dashed border-gray-300 my-2 pt-2 flex justify-between font-black text-gray-800">
-                                <span>ENTREGAR:</span>
-                                <span>₲ {((item.startingCash || 0) + shiftDetails.breakdown.cash).toLocaleString()}</span>
-                              </div>
+                              <>
+                                <div className="flex justify-between text-amber-700 font-bold">
+                                  <span>Fiado cobrado</span>
+                                  <span>₲ {(shiftDetails.creditCollected || 0).toLocaleString()}</span>
+                                </div>
+                                {shiftDetails.creditPayments?.length > 0 && (
+                                  <div className="space-y-0.5 pl-2">
+                                    {shiftDetails.creditPayments.map(cp => (
+                                      <div key={cp.id} className="flex justify-between text-[11px] text-gray-500">
+                                        <span className="truncate pr-2">• {cp.clientName}</span>
+                                        <span className="shrink-0">₲ {cp.amount.toLocaleString()}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                <div className="border-t border-dashed border-gray-300 my-2 pt-2 flex justify-between font-black text-gray-800">
+                                  <span>ENTREGAR:</span>
+                                  <span>₲ {((item.startingCash || 0) + shiftDetails.breakdown.cash + (shiftDetails.creditCollected || 0)).toLocaleString()}</span>
+                                </div>
+                              </>
                             )}
                           </div>
                         </div>

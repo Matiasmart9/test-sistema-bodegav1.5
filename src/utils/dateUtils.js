@@ -6,21 +6,39 @@
 const TZ = 'America/Asuncion';
 const LOCALE = 'es-PY';
 
+const getPartsPY = (date) => {
+  const d = date?.toDate ? date.toDate() : new Date(date);
+  if (isNaN(d.getTime())) return null;
+
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    hourCycle: 'h23',
+    timeZone: TZ,
+  }).formatToParts(d);
+
+  const map = {};
+  for (const p of parts) {
+    if (p.type !== 'literal') map[p.type] = p.value;
+  }
+  // Asegurar que "24" (si algún motor devuelve h24) se normalice a "00"
+  if (map.hour === '24') map.hour = '00';
+  return map;
+};
+
 /**
  * Formatea una fecha con hora completa en formato 24hs de Paraguay.
  * Ej: "24/05/2026, 21:30"
  */
-export const formatDateTime = (date, options = {}) => {
+export const formatDateTime = (date) => {
   if (!date) return '-';
-  const d = date?.toDate ? date.toDate() : new Date(date);
-  return new Intl.DateTimeFormat(LOCALE, {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-    hour12: false,
-    hourCycle: 'h23',
-    timeZone: TZ,
-    ...options,
-  }).format(d);
+  const p = getPartsPY(date);
+  if (!p) return '-';
+  return `${p.day}/${p.month}/${p.year}, ${p.hour}:${p.minute}`;
 };
 
 /**
@@ -29,11 +47,9 @@ export const formatDateTime = (date, options = {}) => {
  */
 export const formatDate = (date) => {
   if (!date) return '-';
-  const d = date?.toDate ? date.toDate() : new Date(date);
-  return new Intl.DateTimeFormat(LOCALE, {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    timeZone: TZ,
-  }).format(d);
+  const p = getPartsPY(date);
+  if (!p) return '-';
+  return `${p.day}/${p.month}/${p.year}`;
 };
 
 /**
@@ -42,13 +58,9 @@ export const formatDate = (date) => {
  */
 export const formatTime = (date) => {
   if (!date) return '-';
-  const d = date?.toDate ? date.toDate() : new Date(date);
-  return new Intl.DateTimeFormat(LOCALE, {
-    hour: '2-digit', minute: '2-digit',
-    hour12: false,
-    hourCycle: 'h23',
-    timeZone: TZ,
-  }).format(d);
+  const p = getPartsPY(date);
+  if (!p) return '-';
+  return `${p.hour}:${p.minute}`;
 };
 
 /**
@@ -67,5 +79,6 @@ export const todayStrPY = () => {
 export const toInputDatePY = (date) => {
   if (!date) return '';
   const d = date?.toDate ? date.toDate() : new Date(date);
+  if (isNaN(d.getTime())) return '';
   return new Intl.DateTimeFormat('sv-SE', { timeZone: TZ }).format(d);
 };

@@ -164,6 +164,60 @@ export default function NewProduct() {
           user:  userData?.name || 'Admin',
           date:  new Date(),
         });
+        // Crear lote inicial en inventory_batches si el producto nace con stock
+        const now = new Date();
+        const initialBatches = [];
+        if (Array.isArray(formData.variants) && formData.variants.length > 0) {
+          formData.variants.forEach((v, idx) => {
+            const vStock = parseFloat(v.stock || 0);
+            if (vStock > 0) {
+              initialBatches.push({
+                productId:      newDoc.id,
+                variantIndex:   idx,
+                productName:    `${formData.name} / ${v.name}`,
+                qtyOriginal:    vStock,
+                qtyRemaining:   vStock,
+                unitCost:       parseFloat(v.cost || 0),
+                supplier:       'Stock inicial (mercadería existente)',
+                supplierId:     null,
+                invoiceNo:      null,
+                notes:          'Stock al crear producto',
+                entryDate:      now,
+                stockEntryId:   null,
+                createdBy:      userData?.name || 'Admin',
+                isInitialStock: true,
+                createdAt:      now,
+              });
+            }
+          });
+        } else {
+          const initialStock = parseFloat(formData.current_stock || 0);
+          if (initialStock > 0) {
+            initialBatches.push({
+              productId:      newDoc.id,
+              variantIndex:   null,
+              productName:    formData.name,
+              qtyOriginal:    initialStock,
+              qtyRemaining:   initialStock,
+              unitCost:       parseFloat(formData.cost || 0),
+              supplier:       'Stock inicial (mercadería existente)',
+              supplierId:     null,
+              invoiceNo:      null,
+              notes:          'Stock al crear producto',
+              entryDate:      now,
+              stockEntryId:   null,
+              createdBy:      userData?.name || 'Admin',
+              isInitialStock: true,
+              createdAt:      now,
+            });
+          }
+        }
+        if (initialBatches.length > 0) {
+          await Promise.all(
+            initialBatches.map(b => addDoc(collection(db, 'inventory_batches'), b))
+          );
+        }
+
         sileo.success({ title: 'Producto creado correctamente.', description: 'Ya está disponible en el catálogo.' });
       }
       navigate('/productos', { state: { page: returnPage } });

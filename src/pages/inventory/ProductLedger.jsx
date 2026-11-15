@@ -33,6 +33,7 @@ const INITIAL_STOCK_SUPPLIER = 'Stock inicial (mercadería existente)';
 export default function ProductLedger() {
   const [batches,  setBatches]  = useState([]);
   const [sales,    setSales]    = useState([]);
+  const [products, setProducts] = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [reconciling, setReconciling] = useState(false);
   const [confirmModal, setConfirmModal] = useState(null);
@@ -42,25 +43,268 @@ export default function ProductLedger() {
   const [dateEnd,   setDateEnd]   = useState('');
   const [expanded,  setExpanded]  = useState(new Set());
 
+  // Reconcilia lotes contra Lista de Productos y ventas históricas (no anuladas).
+  // Es idempotente: se puede ejecutar automáticamente al abrir la pantalla o con
+  // el botón "Reconciliar Lotes" sin duplicar entradas ni descontar de más.
+  const reconcileBatchesIfNeeded = async (freshProducts, freshBatches, freshSales) => {
+    const anchor = freshBatches.length
+      ? new Date(Math.min(...freshBatches.map(b => b.entryDateObj.getTime())) - 24 * 60 * 60 * 1000)
+      : new Date(2020, 0, 1);
+
+    const batchesByKey = {};
+    freshBatches.forEach(b => {
+      const key = `${b.productId}|${b.variantIndex ?? 'null'}`;
+      (batchesByKey[key] ||= []).push(b);
+    });
+    Object.values(batchesByKey).forEach(arr => arr.sort((a, b) => a.entryDateObj - b.entryDateObj));
+
+    const units = [];
+    const keyBySaleId = {};
+    const keyByProductName = {};
+
+    freshProducts.forEach(p => {
+      if (p.variants && p.variants.length > 0) {
+        p.variants.forEach((v, idx) => {
+          const key = `${p.id}|${idx}`;
+          const pName = `${p.name} / ${v.name}`;
+          keyBySaleId[`${p.id}-${idx}`] = key;
+          keyByProductName[pName.trim().toLowerCase()] = key;
+          units.push({
+            key,
+            productId: p.id,
+            variantIndex: idx,
+            productName: pName,
+            stock: Math.max(0, parseFloat(v.stock) || 0),
+            cost: parseFloat(v.cost) || 0,
+          });
+        });
+      } else {
+        const key = `${p.id}|null`;
+        keyBySaleId[p.id] = key;
+        keyByProductName[(p.name || '').trim().toLowerCase()] = key;
+        units.push({
+          key,
+          productId: p.id,
+          variantIndex: null,
+          productName: p.name,
+          stock: Math.max(0, parseFloat(p.current_stock) || 0),
+          cost: parseFloat(p.cost) || 0,
+        });
+      }
+    });
+
+    const soldQtyByKey = {};
+    const oldestSaleByKey = {};
+    freshSales.forEach(sale => {
+      if (sale.status === 'canceled') return;
+      (sale.items || []).forEach(item => {
+        const key = (item.id && keyBySaleId[item.id])
+          || keyByProductName[(item.name || '').trim().toLowerCase()];
+        if (!key) return;
+        const qty = parseFloat(item.quantity) || 0;
+        if (qty <= 0) return;
+        soldQtyByKey[key] = (soldQtyByKey[key] || 0) + qty;
+        const d = sale.dateObj;
+        if (d instanceof Date && !isNaN(d.getTime())) {
+          if (!oldestSaleByKey[key] || d < oldestSaleByKey[key]) {
+            oldestSaleByKey[key] = d;
+          }
+        }
+      });
+    });
+
+    const writes = [];
+    let createdCount = 0;
+    let adjustedDownCount = 0;
+    let totalCreatedValue = 0;
+
+    units.forEach(u => {
+      const prodBatches = batchesByKey[u.key] || [];
+      const batchedRem = prodBatches.reduce((acc, b) => acc + (parseFloat(b.qtyRemaining) || 0), 0);
+      const batchedOrig = prodBatches.reduce((acc, b) => acc + (parseFloat(b.qtyOriginal) || 0), 0);
+      const consumedFromBatches = Math.max(0, +(batchedOrig - batchedRem).toFixed(3));
+      const totalSoldQty = +(soldQtyByKey[u.key] || 0).toFixed(3);
+      const unbatchedSold = Math.max(0, +(totalSoldQty - consumedFromBatches).toFixed(3));
+
+      const diff = +(u.stock - batchedRem).toFixed(3);
+      const initialDate = oldestSaleByKey[u.key]
+        ? new Date(oldestSaleByKey[u.key].getTime() - 60 * 1000)
+        : anchor;
+      const initialBatch = prodBatches.find(b => b.isInitialStock);
+
+      if (diff > 0.0001) {
+        // Caso A: Falta lote para alcanzar el stock actual (y cubrir ventas previas sin lote)
+        const qtyOrig = +(diff + unbatchedSold).toFixed(3);
+        writes.push({
+          type: 'create',
+          data: {
+            productId:      u.productId,
+            variantIndex:   u.variantIndex,
+            productName:    u.productName,
+            qtyOriginal:    qtyOrig,
+            qtyRemaining:   diff,
+            unitCost:       u.cost,
+            supplier:       INITIAL_STOCK_SUPPLIER,
+            invoiceNo:      null,
+            entryDate:      initialDate,
+            stockEntryId:   null,
+            isInitialStock: true,
+            createdAt:      new Date(),
+          },
+        });
+        createdCount++;
+        totalCreatedValue += diff * u.cost;
+      } else if (diff < -0.0001) {
+        // Caso B: Sobran lotes respecto al stock actual -> descontar FIFO de los más antiguos
+        let pending = -diff;
+        let consumedNow = 0;
+        for (const b of prodBatches) {
+          if (pending <= 0.0001) break;
+          const avail = parseFloat(b.qtyRemaining) || 0;
+          if (avail <= 0) continue;
+          const take = +Math.min(avail, pending).toFixed(3);
+          writes.push({ type: 'consume', batchId: b.id, qty: take });
+          pending = +(pending - take).toFixed(3);
+          consumedNow = +(consumedNow + take).toFixed(3);
+        }
+        if (consumedNow > 0) adjustedDownCount++;
+
+        const postConsumeUnbatched = Math.max(0, +(unbatchedSold - consumedNow).toFixed(3));
+        if (postConsumeUnbatched > 0.0001) {
+          if (initialBatch) {
+            const patch = { qtyOriginal: increment(postConsumeUnbatched) };
+            if ((parseFloat(initialBatch.unitCost) || 0) === 0 && u.cost > 0) {
+              patch.unitCost = u.cost;
+            }
+            writes.push({ type: 'updateBatch', batchId: initialBatch.id, data: patch });
+          } else {
+            writes.push({
+              type: 'create',
+              data: {
+                productId:      u.productId,
+                variantIndex:   u.variantIndex,
+                productName:    u.productName,
+                qtyOriginal:    postConsumeUnbatched,
+                qtyRemaining:   0,
+                unitCost:       u.cost,
+                supplier:       INITIAL_STOCK_SUPPLIER,
+                invoiceNo:      null,
+                entryDate:      initialDate,
+                stockEntryId:   null,
+                isInitialStock: true,
+                createdAt:      new Date(),
+              },
+            });
+            createdCount++;
+          }
+        }
+      } else if (unbatchedSold > 0.0001) {
+        // Caso C: Restante coincide, pero faltan entradas iniciales para respaldar ventas pasadas
+        if (initialBatch) {
+          const patch = { qtyOriginal: increment(unbatchedSold) };
+          if ((parseFloat(initialBatch.unitCost) || 0) === 0 && u.cost > 0) {
+            patch.unitCost = u.cost;
+          }
+          writes.push({ type: 'updateBatch', batchId: initialBatch.id, data: patch });
+        } else {
+          writes.push({
+            type: 'create',
+            data: {
+              productId:      u.productId,
+              variantIndex:   u.variantIndex,
+              productName:    u.productName,
+              qtyOriginal:    unbatchedSold,
+              qtyRemaining:   0,
+              unitCost:       u.cost,
+              supplier:       INITIAL_STOCK_SUPPLIER,
+              invoiceNo:      null,
+              entryDate:      initialDate,
+              stockEntryId:   null,
+              isInitialStock: true,
+              createdAt:      new Date(),
+            },
+          });
+          createdCount++;
+        }
+      }
+
+      // Si ya existe un lote inicial con costo 0 y el producto tiene costo cargado, completarlo
+      if (
+        diff <= 0.0001 &&
+        unbatchedSold <= 0.0001 &&
+        initialBatch &&
+        (parseFloat(initialBatch.unitCost) || 0) === 0 &&
+        u.cost > 0
+      ) {
+        writes.push({
+          type: 'updateBatch',
+          batchId: initialBatch.id,
+          data: { unitCost: u.cost },
+        });
+      }
+    });
+
+    if (writes.length === 0) {
+      return { changed: false, createdCount: 0, adjustedDownCount: 0, totalCreatedValue: 0 };
+    }
+
+    // Límite de Firestore: 500 operaciones por batch
+    for (let i = 0; i < writes.length; i += 450) {
+      const chunk = writes.slice(i, i + 450);
+      const wb = writeBatch(db);
+      chunk.forEach(w => {
+        if (w.type === 'create') {
+          wb.set(doc(collection(db, 'inventory_batches')), w.data);
+        } else if (w.type === 'consume') {
+          wb.update(doc(db, 'inventory_batches', w.batchId), { qtyRemaining: increment(-w.qty) });
+        } else if (w.type === 'updateBatch') {
+          wb.update(doc(db, 'inventory_batches', w.batchId), w.data);
+        }
+      });
+      await wb.commit();
+    }
+
+    return { changed: true, createdCount, adjustedDownCount, totalCreatedValue };
+  };
+
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [batchesSnap, salesSnap] = await Promise.all([
+      const [batchesSnap, salesSnap, productsSnap] = await Promise.all([
         getDocs(query(collection(db, 'inventory_batches'), orderBy('entryDate', 'desc'))),
         getDocs(collection(db, 'sales')),
+        getDocs(collection(db, 'products')),
       ]);
 
-      setBatches(batchesSnap.docs.map(d => {
+      let freshBatches = batchesSnap.docs.map(d => {
         const b = d.data();
         return { id: d.id, ...b, entryDateObj: b.entryDate?.toDate ? b.entryDate.toDate() : new Date(b.entryDate) };
-      }));
-
-      setSales(salesSnap.docs
+      });
+      const freshSales = salesSnap.docs
         .map(d => {
           const s = d.data();
           return { id: d.id, ...s, dateObj: s.date?.toDate ? s.date.toDate() : new Date(s.date) };
         })
-        .filter(s => s.status !== 'canceled'));
+        .filter(s => s.status !== 'canceled');
+      const freshProducts = productsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      // Sincronización silenciosa automática al abrir Ficha de Mercaderías
+      try {
+        const syncRes = await reconcileBatchesIfNeeded(freshProducts, freshBatches, freshSales);
+        if (syncRes.changed) {
+          const refreshedBatchesSnap = await getDocs(query(collection(db, 'inventory_batches'), orderBy('entryDate', 'desc')));
+          freshBatches = refreshedBatchesSnap.docs.map(d => {
+            const b = d.data();
+            return { id: d.id, ...b, entryDateObj: b.entryDate?.toDate ? b.entryDate.toDate() : new Date(b.entryDate) };
+          });
+        }
+      } catch (syncErr) {
+        console.warn('Reconciliación automática omitida:', syncErr);
+      }
+
+      setBatches(freshBatches);
+      setSales(freshSales);
+      setProducts(freshProducts);
     } catch (e) {
       console.error('Error cargando ficha de mercaderías:', e);
     } finally {
@@ -70,21 +314,14 @@ export default function ProductLedger() {
 
   useEffect(() => { fetchAll(); }, []);
 
-  // ── Reconciliar lotes contra Lista de Productos, en los dos sentidos:
-  // (a) Falta lote — el stock actual es mayor a lo que suman los lotes (ej.:
-  //     mercadería que ya existía antes de usar Entrada Mercadería). Se crea
-  //     un lote con la diferencia, con el costo actual como referencia y una
-  //     fecha anterior a cualquier lote real, para que se consuma primero.
-  // (b) Sobran lotes — el stock actual es MENOR a lo que suman los lotes (ej.:
-  //     ventas viejas de Registro Manual que descontaron el stock del producto
-  //     pero nunca tocaron los lotes). Se descuenta el excedente de los lotes
-  //     existentes, del más antiguo al más nuevo, sin crear ni borrar lotes. ──
+  // Reconciliación manual desde el botón "Reconciliar Lotes"
   const runReconciliation = async () => {
     setReconciling(true);
     try {
-      const [batchesSnap, productsSnap] = await Promise.all([
+      const [batchesSnap, productsSnap, salesSnap] = await Promise.all([
         getDocs(collection(db, 'inventory_batches')),
         getDocs(collection(db, 'products')),
+        getDocs(collection(db, 'sales')),
       ]);
 
       const freshBatches = batchesSnap.docs.map(d => {
@@ -92,114 +329,23 @@ export default function ProductLedger() {
         return { id: d.id, ...b, entryDateObj: b.entryDate?.toDate ? b.entryDate.toDate() : new Date(b.entryDate) };
       });
       const freshProducts = productsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const freshSales = salesSnap.docs
+        .map(d => {
+          const s = d.data();
+          return { id: d.id, ...s, dateObj: s.date?.toDate ? s.date.toDate() : new Date(s.date) };
+        })
+        .filter(s => s.status !== 'canceled');
 
-      // Ancla: un día antes del lote real más antiguo (o una fecha fija si no hay ninguno)
-      const anchor = freshBatches.length
-        ? new Date(Math.min(...freshBatches.map(b => b.entryDateObj.getTime())) - 24 * 60 * 60 * 1000)
-        : new Date(2020, 0, 1);
+      const result = await reconcileBatchesIfNeeded(freshProducts, freshBatches, freshSales);
 
-      // Lotes agrupados por producto/variante, ordenados del más viejo al más nuevo
-      const batchesByKey = {};
-      freshBatches.forEach(b => {
-        const key = `${b.productId}|${b.variantIndex ?? 'null'}`;
-        (batchesByKey[key] ||= []).push(b);
-      });
-      Object.values(batchesByKey).forEach(arr => arr.sort((a, b) => a.entryDateObj - b.entryDateObj));
-
-      // Stock remanente por lotes existentes, agrupado por producto/variante
-      const remainingByKey = {};
-      Object.entries(batchesByKey).forEach(([key, arr]) => {
-        remainingByKey[key] = arr.reduce((acc, b) => acc + (parseFloat(b.qtyRemaining) || 0), 0);
-      });
-
-      // Unidades a reconciliar: producto simple o cada variante activa
-      const units = [];
-      freshProducts.forEach(p => {
-        if (p.variants && p.variants.length > 0) {
-          p.variants.forEach((v, idx) => {
-            units.push({
-              productId: p.id, variantIndex: idx,
-              productName: `${p.name} / ${v.name}`,
-              stock: parseFloat(v.stock) || 0,
-              cost: parseFloat(v.cost) || 0,
-            });
-          });
-        } else {
-          units.push({
-            productId: p.id, variantIndex: null,
-            productName: p.name,
-            stock: parseFloat(p.current_stock) || 0,
-            cost: parseFloat(p.cost) || 0,
-          });
-        }
-      });
-
-      const toCreate  = []; // faltan lotes (deficit)
-      const toConsume = []; // sobran lotes (excedente): { ...u, excess, plan: [{batchId, qty}] }
-
-      units.forEach(u => {
-        const key = `${u.productId}|${u.variantIndex ?? 'null'}`;
-        const diff = u.stock - (remainingByKey[key] || 0);
-        if (diff > 0.0001) {
-          toCreate.push({ ...u, deficit: diff });
-        } else if (diff < -0.0001) {
-          let pending = -diff;
-          const plan = [];
-          for (const b of (batchesByKey[key] || [])) {
-            if (pending <= 0) break;
-            const avail = parseFloat(b.qtyRemaining) || 0;
-            if (avail <= 0) continue;
-            const take = Math.min(avail, pending);
-            plan.push({ batchId: b.id, qty: take });
-            pending -= take;
-          }
-          if (plan.length > 0) toConsume.push({ ...u, excess: -diff - pending, plan });
-        }
-      });
-
-      if (toCreate.length === 0 && toConsume.length === 0) {
+      if (!result.changed) {
         sileo.success({ title: 'No hay nada para reconciliar.', description: 'El stock de todos los productos ya coincide con sus lotes.' });
         return;
       }
 
-      // Juntar todas las escrituras (crear lotes + descontar excedentes) y
-      // mandarlas en tandas de 450 (límite de Firestore es 500 por batch)
-      const writes = [
-        ...toCreate.map(u => ({ type: 'create', u })),
-        ...toConsume.flatMap(u => u.plan.map(p => ({ type: 'consume', batchId: p.batchId, qty: p.qty }))),
-      ];
-
-      for (let i = 0; i < writes.length; i += 450) {
-        const chunk = writes.slice(i, i + 450);
-        const wb = writeBatch(db);
-        chunk.forEach(w => {
-          if (w.type === 'create') {
-            const ref = doc(collection(db, 'inventory_batches'));
-            wb.set(ref, {
-              productId:    w.u.productId,
-              variantIndex: w.u.variantIndex,
-              productName:  w.u.productName,
-              qtyOriginal:  w.u.deficit,
-              qtyRemaining: w.u.deficit,
-              unitCost:     w.u.cost,
-              supplier:     INITIAL_STOCK_SUPPLIER,
-              invoiceNo:    null,
-              entryDate:    anchor,
-              stockEntryId: null,
-              isInitialStock: true,
-              createdAt:    new Date(),
-            });
-          } else {
-            wb.update(doc(db, 'inventory_batches', w.batchId), { qtyRemaining: increment(-w.qty) });
-          }
-        });
-        await wb.commit();
-      }
-
-      const totalValor = toCreate.reduce((acc, u) => acc + u.deficit * u.cost, 0);
       const partes = [];
-      if (toCreate.length)  partes.push(`${toCreate.length} lote(s) inicial(es) creado(s) (valor de referencia ${g(totalValor)})`);
-      if (toConsume.length) partes.push(`${toConsume.length} producto(s) con lotes corregidos hacia abajo`);
+      if (result.createdCount) partes.push(`${result.createdCount} lote(s) inicial(es) creado(s) (valor de referencia ${g(result.totalCreatedValue)})`);
+      if (result.adjustedDownCount) partes.push(`${result.adjustedDownCount} producto(s) con lotes corregidos hacia abajo`);
       sileo.success({
         title: 'Lotes reconciliados con Lista de Productos.',
         description: `${partes.join(' — ')}. Ya podés comparar Restante con el Stock.`,
@@ -251,6 +397,22 @@ export default function ProductLedger() {
     }
     return productGroups[name];
   };
+
+  if (!dateStart && !dateEnd) {
+    products.forEach(p => {
+      if (p.variants && p.variants.length > 0) {
+        p.variants.forEach(v => {
+          const name = `${p.name} / ${v.name}`;
+          if (term && !name.toLowerCase().includes(term)) return;
+          ensureGroup(name);
+        });
+      } else {
+        const name = p.name || 'Sin nombre';
+        if (term && !name.toLowerCase().includes(term)) return;
+        ensureGroup(name);
+      }
+    });
+  }
 
   batches.forEach(b => {
     const name = b.productName || 'Sin nombre';

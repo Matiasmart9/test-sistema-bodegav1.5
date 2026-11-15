@@ -217,6 +217,28 @@ export default function ProductHistory({ productId, onStockUpdate }) {
             selectedDate = new Date(sy, sm - 1, sd, 12, 0, 0, 0);
           }
 
+          // Si se suma stock con un movimiento nuevo, crear un lote FIFO para que
+          // Ficha de Mercaderías y Lista de Productos queden sincronizados.
+          if (!editingLog && change > 0) {
+            const newBatchRef = doc(collection(db, 'inventory_batches'));
+            transaction.set(newBatchRef, {
+              productId,
+              variantIndex: targetVariantIndex >= 0 ? targetVariantIndex : null,
+              productName:  variantName,
+              qtyOriginal:  change,
+              qtyRemaining: change,
+              unitCost,
+              supplier:     supplier || formData.reason || 'Ajuste de Inventario',
+              supplierId:   null,
+              invoiceNo:    null,
+              notes:        formData.note || formData.reason || '',
+              entryDate:    selectedDate,
+              stockEntryId: null,
+              createdBy:    userData?.name || 'Usuario',
+              createdAt:    now,
+            });
+          }
+
           const logPayload = {
             date: selectedDate, variantName, reason: formData.reason,
             note: formData.note,

@@ -3,8 +3,11 @@ import React, { useState, useEffect } from 'react';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import { collection, addDoc, getDocs, updateDoc, doc, deleteDoc, query, where } from 'firebase/firestore';
 import { db } from '../../firebase/config';
-import { Truck, Search, Plus, Trash2, Edit, Save, X, Mail, Phone, MapPin, ClipboardList, Tag, Calendar, Info, Clock, User, DollarSign } from 'lucide-react';
-import { formatDateTime } from '../../utils/dateUtils';
+import { Truck, Search, Plus, Trash2, Edit, Save, X, Mail, Phone, MapPin, ClipboardList, Tag, Clock, AlertCircle } from 'lucide-react';
+import { formatDate, formatTime } from '../../utils/dateUtils';
+
+// Normaliza RUC quitando guiones, puntos y espacios para comparar duplicados sin importar formato
+const normalizeRuc = (ruc) => (ruc || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
 
 export default function ProvidersList() {
   const [providers, setProviders] = useState([]);
@@ -88,36 +91,69 @@ export default function ProvidersList() {
 
   const fetchProviders = async () => {
     try {
-        const snap = await getDocs(collection(db, "providers"));
-        setProviders(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const snap = await getDocs(collection(db, "providers"));
+      setProviders(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (error) {
-        console.error("Error cargando proveedores:", error);
-        sileo.error({ title: "Error al cargar los proveedores." });
+      console.error("Error cargando proveedores:", error);
+      sileo.error({ title: "Error al cargar los proveedores." });
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
   };
+
+  // Validador en tiempo real de RUC duplicado
+  const cleanCurrentRuc = normalizeRuc(formData.ruc);
+  const duplicateRucProvider = cleanCurrentRuc
+    ? providers.find(p => p.id !== editingId && normalizeRuc(p.ruc) === cleanCurrentRuc)
+    : null;
 
   // Guardar (Crear o Editar)
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!formData.name.trim()) {
-      return sileo.warning({ title: "El nombre es obligatorio." });
+    const trimmedName = formData.name.trim();
+    const trimmedRuc = formData.ruc.trim();
+
+    if (!trimmedName) {
+      return sileo.warning({ title: "El nombre / razón social es obligatorio." });
     }
+    if (!trimmedRuc) {
+      return sileo.warning({ title: "El RUC es obligatorio para validar el proveedor." });
+    }
+
+    // Validar que no exista otro proveedor con el mismo RUC
+    const normalizedInputRuc = normalizeRuc(trimmedRuc);
+    const existingByRuc = providers.find(
+      p => p.id !== editingId && normalizeRuc(p.ruc) === normalizedInputRuc
+    );
+    if (existingByRuc) {
+      return sileo.warning({
+        title: "Proveedor ya registrado",
+        description: `Ya existe el proveedor "${existingByRuc.name}" con el RUC ${existingByRuc.ruc}.`
+      });
+    }
+
+    const payload = {
+      name: trimmedName,
+      ruc: trimmedRuc,
+      phone: formData.phone.trim(),
+      address: formData.address.trim(),
+      email: formData.email.trim(),
+    };
+
     try {
       if (editingId) {
-        await updateDoc(doc(db, "providers", editingId), formData);
+        await updateDoc(doc(db, "providers", editingId), payload);
         sileo.success({ title: "Proveedor actualizado con éxito." });
       } else {
         await addDoc(collection(db, "providers"), {
-          ...formData,
+          ...payload,
           createdAt: new Date()
         });
         sileo.success({ title: "Proveedor registrado con éxito." });
       }
       setShowModal(false);
       setEditingId(null);
-      setFormData({ name: '', ruc: '', phone: '', address: '', email: '' }); // Reseteamos
+      setFormData({ name: '', ruc: '', phone: '', address: '', email: '' });
       fetchProviders();
     } catch (error) {
       console.error(error);
@@ -289,14 +325,27 @@ export default function ProvidersList() {
                         />
                     </div>
                     <div>
-                        <label className="block text-xs font-bold text-gray-500 uppercase">RUC</label>
+                        <label className="block text-xs font-bold text-gray-500 uppercase">RUC *</label>
                         <input 
                           type="text" 
+                          required
                           placeholder="Ej: 80012345-6"
                           value={formData.ruc} 
                           onChange={e => setFormData({...formData, ruc: e.target.value})} 
-                          className="w-full border rounded-lg p-2.5 mt-1 focus:border-primary outline-none text-sm border-gray-200"
+                          className={`w-full border rounded-lg p-2.5 mt-1 outline-none text-sm transition-colors ${
+                            duplicateRucProvider
+                              ? 'border-red-400 bg-red-50/40 focus:border-red-500'
+                              : 'border-gray-200 focus:border-primary'
+                          }`}
                         />
+                        {duplicateRucProvider && (
+                          <div className="mt-1.5 flex items-start gap-1.5 text-xs text-red-600 font-semibold bg-red-50 border border-red-200 rounded-lg p-2">
+                            <AlertCircle size={15} className="shrink-0 mt-0.5 text-red-500" />
+                            <span>
+                              Ya existe un proveedor registrado con este RUC: <strong>{duplicateRucProvider.name}</strong> ({duplicateRucProvider.ruc}).
+                            </span>
+                          </div>
+                        )}
                     </div>
                     
                     <div>
@@ -332,7 +381,11 @@ export default function ProvidersList() {
                             />
                         </div>
                     </div>
-                    <button type="submit" className="w-full bg-primary text-white font-bold py-3 rounded-lg hover:bg-green-700 flex justify-center gap-2 mt-2 shadow-sm transition-colors text-sm">
+                    <button
+                      type="submit"
+                      disabled={Boolean(duplicateRucProvider)}
+                      className="w-full bg-primary text-white font-bold py-3 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex justify-center gap-2 mt-2 shadow-sm transition-colors text-sm"
+                    >
                         <Save size={18}/> GUARDAR DATOS
                     </button>
                 </form>
@@ -427,7 +480,11 @@ export default function ProvidersList() {
                             <div className="space-y-1">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-xs font-bold text-gray-700">
-                                  {formatDateTime(entry.dateObj)}
+                                  {formatDate(entry.dateObj)}
+                                </span>
+                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
+                                  <Clock size={11} className="text-slate-400" />
+                                  {formatTime(entry.dateObj)} hs
                                 </span>
                                 {entry.invoiceNo && (
                                   <span className="text-[10px] bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded font-mono font-bold">
@@ -496,7 +553,11 @@ export default function ProvidersList() {
                           <div className="space-y-1">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-xs font-bold text-gray-700">
-                                {formatDateTime(log.dateObj)}
+                                {formatDate(log.dateObj)}
+                              </span>
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
+                                <Clock size={11} className="text-slate-400" />
+                                {formatTime(log.dateObj)} hs
                               </span>
                               <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider
                                 ${log.reason === 'Devolución'

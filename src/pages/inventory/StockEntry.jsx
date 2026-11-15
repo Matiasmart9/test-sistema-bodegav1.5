@@ -4,6 +4,7 @@ import { db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
 import { sileo } from 'sileo';
 import { formatGuaranies, parseGuaraniesStr } from '../../utils/moneyUtils';
+import { formatDateTime } from '../../utils/dateUtils';
 import {
   Truck, Search, Plus, Minus, Trash2, Save,
   Package, Barcode, RefreshCw, ClipboardList,
@@ -136,15 +137,10 @@ export default function StockEntry() {
 
     setSaving(true);
     try {
-      // Construir la fecha seleccionada (hora actual si es hoy, o mediodía para evitar desfase de zona horaria)
+      // Construir la fecha seleccionada conservando la hora actual real en formato 24hs
       const [sy, sm, sd] = entryDateStr.split('-').map(Number);
       const now = new Date();
-      const isToday = (
-        now.getFullYear() === sy &&
-        (now.getMonth() + 1) === sm &&
-        now.getDate() === sd
-      );
-      const entryDate = isToday ? now : new Date(sy, sm - 1, sd, 12, 0, 0, 0);
+      const entryDate = new Date(sy, sm - 1, sd, now.getHours(), now.getMinutes(), now.getSeconds());
       const batch     = writeBatch(db);
 
       // 1. Actualizar stock de cada producto
@@ -279,7 +275,7 @@ export default function StockEntry() {
         id:       entryDoc.id,
         supplier,
         items:    entryCart.length,
-        date:     entryDate.toLocaleString('es-PY'),
+        date:     formatDateTime(entryDate),
       });
       sileo.success({ title: `Entrada de ${entryCart.length} producto(s) registrada.`, description: `Proveedor: ${supplier}` });
       setEntryCart([]);

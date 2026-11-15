@@ -132,6 +132,7 @@ export default function CashierReport() {
         const name   = p.cashierName || 'Desconocido';
         const amount = parseFloat(p.amount || 0);
         const c = ensureCashier(key, name);
+        c.grossSales += amount;
         c.netSales += amount;
         c.paymentBreakdown.creditCollected += amount;
       });

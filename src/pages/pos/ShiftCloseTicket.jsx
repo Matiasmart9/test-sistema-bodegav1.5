@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { Loader2 } from 'lucide-react';
+import { formatDate, formatTime } from '../../utils/dateUtils';
 
 const g    = (n) => `\u20b2 ${Math.round(n || 0).toLocaleString('es-PY')}`;
 const Line = () => <div className="border-b border-dashed border-gray-400 my-2.5"/>;
@@ -54,16 +55,24 @@ export default function ShiftCloseTicket({ shiftData, salesTotal, expensesTotal 
           }
         });
 
-        // Cobros de fiado recibidos durante este turno — entran como efectivo real,
-        // pero se muestran aparte de "Ventas efectivo" para no confundir una cosa con la otra.
+        // Cobros de fiado recibidos durante este turno — entran a caja y suman
+        // al total vendido del turno, por eso se muestran en ambos desgloses.
         let creditCollected = 0;
+        const creditPayments = [];
         creditPaymentsSnap.docs.forEach(d => {
           const p = d.data();
           if (p.status === 'voided') return;
-          creditCollected += parseFloat(p.amount || 0);
+          const amt = parseFloat(p.amount || 0);
+          creditCollected += amt;
+          creditPayments.push({
+            id: d.id,
+            clientName: p.clientName || 'Cliente',
+            amount: amt,
+            note: p.note || '',
+          });
         });
 
-        setShiftDetail({ ticketCount, canceledCount, canceledTotal, discountTotal, cash, qr, card, transfer, credit, totalCost, creditCollected });
+        setShiftDetail({ ticketCount, canceledCount, canceledTotal, discountTotal, cash, qr, card, transfer, credit, totalCost, creditCollected, creditPayments });
       } catch (e) { console.error(e); }
       finally { setLoading(false); }
     };
@@ -86,7 +95,7 @@ export default function ShiftCloseTicket({ shiftData, salesTotal, expensesTotal 
   const totalCost     = shiftDetail?.totalCost || 0;
   const gananciaNeta  = salesNet - totalCost - expensesNet; // Ventas − Costo − Gastos
 
-  const fmt = (d) => d.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const fmtFull = (d) => `${formatDate(d)} ${formatTime(d)}`;
 
   return (
     <div className="font-mono text-[11px] text-gray-900 leading-relaxed bg-white w-full p-4">
@@ -97,7 +106,7 @@ export default function ShiftCloseTicket({ shiftData, salesTotal, expensesTotal 
         {storeData.storeRuc && <p className="text-[10px] text-gray-500">RUC: {storeData.storeRuc}</p>}
         <p className="font-bold text-gray-600 mt-1.5 tracking-widest text-xs">CORTE Z - CIERRE DE TURNO</p>
         <p className="text-[10px] text-gray-400">
-          {closeTime.toLocaleDateString('es-PY')} {fmt(closeTime)}
+          {fmtFull(closeTime)}
         </p>
       </div>
 
@@ -105,8 +114,8 @@ export default function ShiftCloseTicket({ shiftData, salesTotal, expensesTotal 
 
       <div className="space-y-1 mb-1">
         <Row label="CAJERO:"    value={(shiftData?.userName || '').toUpperCase()} bold />
-        <Row label="APERTURA:"  value={fmt(openTime)} />
-        <Row label="CIERRE:"    value={fmt(closeTime)} />
+        <Row label="APERTURA:"  value={fmtFull(openTime)} />
+        <Row label="CIERRE:"    value={fmtFull(closeTime)} />
         <Row label="TICKETS:"   value={`${shiftDetail?.ticketCount || 0} emitidos`} />
         {(shiftDetail?.canceledCount || 0) > 0 && (
           <Row label="ANULADOS:" value={`${shiftDetail.canceledCount} (${g(shiftDetail.canceledTotal)})`} color="text-red-500" />
@@ -121,6 +130,19 @@ export default function ShiftCloseTicket({ shiftData, salesTotal, expensesTotal 
         <Row label="  QR:"             value={g(shiftDetail?.qr       || 0)} indent />
         <Row label="  Tarjeta:"        value={g(shiftDetail?.card     || 0)} indent />
         <Row label="  Transferencia:"  value={g(shiftDetail?.transfer || 0)} indent />
+        <Row
+          label="  Fiado cobrado:"
+          value={g(creditCollected)}
+          color={creditCollected > 0 ? 'text-amber-700' : undefined}
+          bold={creditCollected > 0}
+          indent
+        />
+        {(shiftDetail?.creditPayments?.length || 0) > 0 && shiftDetail.creditPayments.map(cp => (
+          <div key={cp.id} className="flex justify-between items-center text-[10px] text-gray-500 pl-5">
+            <span className="truncate pr-2">• {cp.clientName}{cp.note ? ` (${cp.note})` : ''}</span>
+            <span className="shrink-0 font-semibold text-amber-700">{g(cp.amount)}</span>
+          </div>
+        ))}
         {(shiftDetail?.credit || 0) > 0 && (
           <Row label="  Fiado (pendiente cobro):" value={g(shiftDetail.credit)} color="text-orange-600" indent />
         )}
